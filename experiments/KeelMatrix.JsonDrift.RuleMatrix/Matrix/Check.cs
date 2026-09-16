@@ -6,10 +6,24 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 internal static class Check
 {
     public static CheckOutcome Compatible(string id, string title, string change, ReadOutcome outcome) =>
-        FromReading(id, title, change, Display("ReaderBackward", true), outcome.Lossless, "ReaderBackward", outcome);
+        FromReading(
+            id,
+            title,
+            change,
+            Display("ReaderBackward", true),
+            outcome.Lossless && outcome.Fault is null,
+            "ReaderBackward",
+            outcome);
 
     public static CheckOutcome Incompatible(string id, string title, string change, ReadOutcome outcome) =>
-        FromReading(id, title, change, Display("ReaderBackward", false), !outcome.Lossless, "ReaderBackward", outcome);
+        FromReading(
+            id,
+            title,
+            change,
+            Display("ReaderBackward", false),
+            !outcome.Lossless && outcome.Fault is null,
+            "ReaderBackward",
+            outcome);
 
     public static CheckOutcome Supported(string id, string title, string change, string? unsupportedReason) =>
         new(
@@ -67,7 +81,7 @@ internal static class Check
                 title,
                 change,
                 Display("ReaderBackward", readerBackwardCompatible),
-                measuredReaderBackward == readerBackwardCompatible,
+                measuredReaderBackward == readerBackwardCompatible && readerBackward.Fault is null,
                 "ReaderBackward",
                 readerBackward),
             FromReading(
@@ -75,7 +89,7 @@ internal static class Check
                 title,
                 change,
                 Display("WriterForward", writerForwardCompatible),
-                measuredWriterForward == writerForwardCompatible,
+                measuredWriterForward == writerForwardCompatible && writerForward.Fault is null,
                 "WriterForward",
                 writerForward),
             new CheckOutcome(
@@ -85,7 +99,7 @@ internal static class Check
                 Display("Full", expectedFull),
                 Display("Full", measuredFull),
                 $"readerBackward: {Describe(readerBackward)} | writerForward: {Describe(writerForward)}",
-                measuredFull == expectedFull),
+                measuredFull == expectedFull && readerBackward.Fault is null && writerForward.Fault is null),
         };
     }
 
@@ -103,6 +117,11 @@ internal static class Check
         else
         {
             parts.Add($"error={Truncate(outcome.Failure, 120)}");
+        }
+
+        if (outcome.Fault is not null)
+        {
+            parts.Add($"fault={Truncate(outcome.Fault, 160)}");
         }
 
         if (outcome.Differences.Count > 0)

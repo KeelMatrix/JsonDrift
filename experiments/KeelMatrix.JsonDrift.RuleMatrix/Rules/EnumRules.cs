@@ -7,7 +7,8 @@ using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 namespace KeelMatrix.JsonDrift.RuleMatrix.Rules;
 
 /// <summary>
-/// R08 enum representation: numeric tokens, string tokens, and member identity.
+/// R08 enum representation: numeric tokens, string tokens, member identity, and the serialized name a
+/// string enum member actually uses.
 /// </summary>
 internal static class EnumRules
 {
@@ -17,15 +18,20 @@ internal static class EnumRules
         JsonSerializerOptions numeric = JsonContractOptions.Reflection();
         JsonSerializerOptions text = JsonContractOptions.Reflection(new JsonStringEnumConverter());
         JsonSerializerOptions textOnly = JsonContractOptions.Reflection(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
+        JsonSerializerOptions camelCase = JsonContractOptions.Reflection(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+        JsonSerializerOptions snakeCase = JsonContractOptions.Reflection(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
 
         JsonTypeInfo numericState = numeric.GetTypeInfo(typeof(StateHolderNumeric));
         JsonTypeInfo renamedState = text.GetTypeInfo(typeof(StateHolderRenamed));
         JsonTypeInfo textState = text.GetTypeInfo(typeof(StateHolderNumeric));
         JsonTypeInfo textOnlyState = textOnly.GetTypeInfo(typeof(StateHolderNumeric));
         JsonTypeInfo extendedState = numeric.GetTypeInfo(typeof(StateHolderExtended));
+        JsonTypeInfo camelStage = camelCase.GetTypeInfo(typeof(StageHolder));
+        JsonTypeInfo snakeStage = snakeCase.GetTypeInfo(typeof(StageHolder));
 
         var numericValue = new StateHolderNumeric { State = OrderState.Shipped };
         var textValue = new StateHolderNumeric { State = OrderState.Shipped };
+        var staged = new StageHolder { Stage = OrderStage.InProgress };
 
         results.AddRange(Check.Classify(
             "R08.enum.member-rename",
@@ -34,6 +40,15 @@ internal static class EnumRules
             WireProbe.Across(textValue, textState, renamedState),
             readerBackwardCompatible: false,
             WireProbe.Across(new StateHolderRenamed { State = OrderStateRenamed.Dispatched }, renamedState, textState),
+            writerForwardCompatible: false));
+
+        results.AddRange(Check.Classify(
+            "R08.enum.naming-policy",
+            "Enum representation change",
+            "the naming policy applied to string enum members changes",
+            WireProbe.Across(staged, camelStage, snakeStage),
+            readerBackwardCompatible: false,
+            WireProbe.Across(staged, snakeStage, camelStage),
             writerForwardCompatible: false));
 
         results.AddRange(Check.Classify(
@@ -66,6 +81,87 @@ internal static class EnumRules
             "the contract is unchanged",
             WireProbe.Across(numericValue, numericState, numericState)));
 
+        AddWireIdentityChecks(results, numericState, textState, renamedState, camelStage, snakeStage);
+
         return results;
     }
+
+    /// <summary>
+    /// The behavioral probes above only matter when the contract model can observe the wire identity an enum
+    /// member is written with. These checks assert on the canonical document itself, so a change that the
+    /// matrix classifies as incompatible can never produce an identical document.
+    /// </summary>
+    private static void AddWireIdentityChecks(
+        List<CheckOutcome> results,
+        JsonTypeInfo numericState,
+        JsonTypeInfo textState,
+        JsonTypeInfo renamedState,
+        JsonTypeInfo camelStage,
+        JsonTypeInfo snakeStage)
+    {
+        string textDocument = ContractCanonicalizer.Canonicalize(textState);
+        string numericDocument = ContractCanonicalizer.Canonicalize(numericState);
+        string renamedDocument = ContractCanonicalizer.Canonicalize(renamedState);
+        string camelDocument = ContractCanonicalizer.Canonicalize(camelStage);
+        string snakeDocument = ContractCanonicalizer.Canonicalize(snakeStage);
+
+        bool textRecordsIdentity =
+            textDocument.Contains("\"Created\": \"Created\"", StringComparison.Ordinal) &&
+            textDocument.Contains("\"Shipped\": \"Shipped\"", StringComparison.Ordinal) &&
+            textDocument.Contains("\"Cancelled\": \"Cancelled\"", StringComparison.Ordinal);
+
+        results.Add(Check.Assert(
+            "R08.enum.string-tokens.wire-identity",
+            "Enum representation change",
+            "an enum member is written as a string token",
+            "canonical document records the serialized name of every enum member",
+            textRecordsIdentity ? "canonical=MemberWireNamesRecorded" : "canonical=MemberWireNamesMissing",
+            $"wireNames=Created,Shipped,Cancelled; recorded={textRecordsIdentity}",
+            textRecordsIdentity));
+
+        bool numericRecordsIdentity =
+            numericDocument.Contains("\"Created\": 0", StringComparison.Ordinal) &&
+            numericDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal) &&
+            numericDocument.Contains("\"Cancelled\": 2", StringComparison.Ordinal);
+
+        results.Add(Check.Assert(
+            "R08.enum.numeric.wire-identity",
+            "Enum representation change",
+            "an enum member is written as a numeric token",
+            "canonical document records the numeric value of every enum member",
+            numericRecordsIdentity ? "canonical=MemberWireValuesRecorded" : "canonical=MemberWireValuesMissing",
+            $"wireValues=Created:0,Shipped:1,Cancelled:2; recorded={numericRecordsIdentity}",
+            numericRecordsIdentity));
+
+        bool policyRecorded =
+            !string.Equals(camelDocument, snakeDocument, StringComparison.Ordinal) &&
+            camelDocument.Contains("\"InProgress\": \"inProgress\"", StringComparison.Ordinal) &&
+            snakeDocument.Contains("\"InProgress\": \"in_progress\"", StringComparison.Ordinal);
+
+        results.Add(Check.Assert(
+            "R08.enum.naming-policy.document",
+            "Enum representation change",
+            "the naming policy applied to string enum members changes",
+            "canonical documents differ and record the serialized name the applied policy produces",
+            $"identical={string.Equals(camelDocument, snakeDocument, StringComparison.Ordinal)}; camelCase={Describe(camelDocument, "inProgress")}; snake_case={Describe(snakeDocument, "in_progress")}",
+            $"camelCaseWireNames={camelDocument.Contains("\"inProgress\"", StringComparison.Ordinal)}; snakeCaseWireNames={snakeDocument.Contains("\"in_progress\"", StringComparison.Ordinal)}",
+            policyRecorded));
+
+        bool renameRecorded =
+            !string.Equals(textDocument, renamedDocument, StringComparison.Ordinal) &&
+            textDocument.Contains("\"Shipped\": \"Shipped\"", StringComparison.Ordinal) &&
+            renamedDocument.Contains("\"Dispatched\": \"Dispatched\"", StringComparison.Ordinal);
+
+        results.Add(Check.Assert(
+            "R08.enum.member-rename.document",
+            "Enum representation change",
+            "an enum member is renamed in place while the contract keeps string tokens",
+            "canonical documents differ and record the renamed member's serialized name",
+            $"identical={string.Equals(textDocument, renamedDocument, StringComparison.Ordinal)}",
+            $"earlierRecordsShipped={textDocument.Contains("\"Shipped\"", StringComparison.Ordinal)}; laterRecordsDispatched={renamedDocument.Contains("\"Dispatched\"", StringComparison.Ordinal)}",
+            renameRecorded));
+    }
+
+    private static string Describe(string document, string wireName) =>
+        document.Contains(wireName, StringComparison.Ordinal) ? $"contains({wireName})" : $"missing({wireName})";
 }

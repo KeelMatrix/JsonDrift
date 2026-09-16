@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -12,6 +13,12 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 /// </summary>
 internal static class ContractCanonicalizer
 {
+    /// <summary>
+    /// Recorded when the wire name of a string enum member cannot be produced from the declared metadata.
+    /// Such a member is reported unsupported rather than as a classified contract.
+    /// </summary>
+    private const string UnresolvedToken = "<unresolved>";
+
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
         WriteIndented = true,
@@ -35,6 +42,7 @@ internal static class ContractCanonicalizer
 
     private static JsonObject Describe(JsonTypeInfo contract)
     {
+        string? unsupportedReason = ConverterClassifier.DescribeUnsupported(contract);
         var members = new JsonArray();
 
         foreach (JsonPropertyInfo property in contract.Properties.OrderBy(static property => property.Name, StringComparer.Ordinal))
@@ -44,12 +52,30 @@ internal static class ContractCanonicalizer
 
         var described = new JsonObject
         {
-            ["typeName"] = TypeName(contract.Type),
+            ["typeName"] = TypeShapes.TypeName(contract.Type),
             ["kind"] = KindName(contract.Kind),
-            ["supported"] = ConverterClassifier.IsSupported(contract),
+            ["supported"] = unsupportedReason is null,
             ["extensionData"] = contract.Properties.Any(static property => property.IsExtensionData),
             ["members"] = members,
         };
+
+        if (unsupportedReason is null)
+        {
+            JsonObject? enumWire = DescribeEnumWire(
+                contract.Options,
+                contract.Type,
+                ConverterClassifier.WritesStringTokens(contract.Options, contract.Type));
+
+            if (enumWire is not null)
+            {
+                described["enumWire"] = enumWire;
+
+                if (HasUnresolvedToken(enumWire))
+                {
+                    described["supported"] = false;
+                }
+            }
+        }
 
         JsonObject? polymorphism = DescribePolymorphism(contract);
 
@@ -64,21 +90,43 @@ internal static class ContractCanonicalizer
     private static JsonObject DescribeMember(JsonTypeInfo contract, JsonPropertyInfo property)
     {
         string? unsupportedReason = ConverterClassifier.DescribeMemberUnsupported(contract, property);
+        bool writesStringTokens = ConverterClassifier.WritesStringTokens(contract, property);
 
         var member = new JsonObject
         {
             ["name"] = property.Name,
-            ["declaredType"] = TypeName(property.PropertyType),
+            ["declaredType"] = TypeShapes.TypeName(property.PropertyType),
             ["tokenKind"] = TokenKind(
                 property.PropertyType,
                 unsupportedReason is not null,
-                ConverterClassifier.WritesStringTokens(contract, property)),
+                writesStringTokens),
             ["required"] = property.IsRequired,
             ["getNullable"] = property.IsGetNullable,
             ["setNullable"] = property.IsSetNullable,
             ["extensionData"] = property.IsExtensionData,
             ["supported"] = unsupportedReason is null,
         };
+
+        // An unsupported member has opaque metadata: resolving its shape would execute metadata that the
+        // contract cannot classify, so it records no shape at all.
+        if (unsupportedReason is not null)
+        {
+            return member;
+        }
+
+        JsonObject? enumWire = DescribeEnumWire(contract.Options, property.PropertyType, writesStringTokens);
+
+        if (enumWire is not null)
+        {
+            member["enumWire"] = enumWire;
+
+            if (HasUnresolvedToken(enumWire))
+            {
+                member["tokenKind"] = "opaque";
+                member["supported"] = false;
+                return member;
+            }
+        }
 
         JsonObject? shape = DescribeShape(property.PropertyType, contract.Options);
 
@@ -90,11 +138,72 @@ internal static class ContractCanonicalizer
         return member;
     }
 
+    /// <summary>
+    /// Records the wire identity of an enum contract: the serialized name of every member when the applied
+    /// framework converter writes strings, or the numeric value of every member otherwise. Without this,
+    /// two contracts that differ only in an applied naming policy or in an enum member name produce
+    /// identical documents even though their wire values differ.
+    /// </summary>
+    private static JsonObject? DescribeEnumWire(JsonSerializerOptions options, Type declaredType, bool writesStringTokens)
+    {
+        Type enumType = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
+
+        if (!enumType.IsEnum)
+        {
+            return null;
+        }
+
+        var identity = new JsonObject();
+
+        foreach (string name in Enum.GetNames(enumType).OrderBy(static name => name, StringComparer.Ordinal))
+        {
+            identity[name] = writesStringTokens
+                ? StringEnumToken(options, enumType, name)
+                : NumericEnumValue(enumType, name);
+        }
+
+        return identity;
+    }
+
+    /// <summary>
+    /// The serialized name the applied framework string-enum converter produces for one enum member. The
+    /// converter is a framework converter, confirmed by assembly identity, so the serializer itself reports
+    /// the wire name including any naming policy; application converters are never executed.
+    /// </summary>
+    private static string StringEnumToken(JsonSerializerOptions options, Type enumType, string name)
+    {
+        try
+        {
+            string json = JsonSerializer.Serialize(Enum.Parse(enumType, name), options.GetTypeInfo(enumType));
+
+            return json.Length >= 2 && json[0] == '"' && json[^1] == '"' ? json[1..^1] : json;
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException or JsonException)
+        {
+            return UnresolvedToken;
+        }
+    }
+
+    private static JsonValue NumericEnumValue(Type enumType, string name)
+    {
+        object raw = Enum.Parse(enumType, name);
+
+        return Enum.GetUnderlyingType(enumType) == typeof(ulong)
+            ? JsonValue.Create(Convert.ToUInt64(raw, CultureInfo.InvariantCulture))!
+            : JsonValue.Create(Convert.ToInt64(raw, CultureInfo.InvariantCulture))!;
+    }
+
+    private static bool HasUnresolvedToken(JsonObject enumWire) =>
+        enumWire.Any(entry =>
+            entry.Value is JsonValue value &&
+            value.TryGetValue(out string? token) &&
+            string.Equals(token, UnresolvedToken, StringComparison.Ordinal));
+
     private static JsonObject? DescribeShape(Type declaredType, JsonSerializerOptions options)
     {
         Type type = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
 
-        if (IsScalar(type))
+        if (TypeShapes.IsScalar(type))
         {
             return null;
         }
@@ -106,29 +215,29 @@ internal static class ContractCanonicalizer
             var shape = new JsonObject
             {
                 ["kind"] = KindName(referenced.Kind),
-                ["typeName"] = TypeName(type),
+                ["typeName"] = TypeShapes.TypeName(type),
                 ["memberNames"] = MemberNames(referenced),
                 ["supported"] = ConverterClassifier.IsSupported(referenced),
             };
 
-            if (TryDescribeKeyAndValue(type, out Type? keyType, out Type? valueType))
+            if (TypeShapes.TryGetDictionaryTypes(type, out Type? keyType, out Type? valueType))
             {
-                shape["keyType"] = TypeName(keyType!);
-                shape["valueType"] = TypeName(valueType!);
+                shape["keyType"] = TypeShapes.TypeName(keyType!);
+                shape["valueType"] = TypeShapes.TypeName(valueType!);
             }
             else if (referenced.ElementType is Type elementType)
             {
-                shape["elementType"] = TypeName(elementType);
+                shape["elementType"] = TypeShapes.TypeName(elementType);
             }
 
             return shape;
         }
-        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException)
+        catch (Exception exception)
         {
             return new JsonObject
             {
                 ["kind"] = "unresolved",
-                ["typeName"] = TypeName(type),
+                ["typeName"] = TypeShapes.TypeName(type),
                 ["reason"] = exception.GetType().Name,
             };
         }
@@ -166,7 +275,7 @@ internal static class ContractCanonicalizer
             derivedTypes.Add(new JsonObject
             {
                 ["discriminator"] = derived.TypeDiscriminator?.ToString(),
-                ["typeName"] = TypeName(derived.DerivedType),
+                ["typeName"] = TypeShapes.TypeName(derived.DerivedType),
             });
         }
 
@@ -176,63 +285,6 @@ internal static class ContractCanonicalizer
             ["unknownDerivedTypeHandling"] = polymorphism.UnknownDerivedTypeHandling.ToString(),
             ["derivedTypes"] = derivedTypes,
         };
-    }
-
-    private static bool IsScalar(Type type) =>
-        type.IsPrimitive ||
-        type.IsEnum ||
-        type.IsPointer ||
-        type == typeof(string) ||
-        type == typeof(decimal) ||
-        type == typeof(Guid) ||
-        type == typeof(DateTime) ||
-        type == typeof(DateTimeOffset) ||
-        type == typeof(DateOnly) ||
-        type == typeof(TimeOnly) ||
-        type == typeof(TimeSpan) ||
-        type == typeof(Uri) ||
-        type == typeof(object) ||
-        type == typeof(JsonElement) ||
-        type == typeof(JsonDocument) ||
-        type == typeof(JsonNode);
-
-    private static bool TryDescribeKeyAndValue(Type type, out Type? keyType, out Type? valueType)
-    {
-        keyType = null;
-        valueType = null;
-
-        foreach (Type candidate in new[] { type }.Concat(type.GetInterfaces()))
-        {
-            if (!candidate.IsGenericType)
-            {
-                continue;
-            }
-
-            Type definition = candidate.GetGenericTypeDefinition();
-
-            if (definition == typeof(IDictionary<,>) || definition == typeof(IReadOnlyDictionary<,>))
-            {
-                Type[] arguments = candidate.GetGenericArguments();
-                keyType = arguments[0];
-                valueType = arguments[1];
-                return true;
-            }
-        }
-
-        if (type.IsGenericType)
-        {
-            Type definition = type.GetGenericTypeDefinition();
-
-            if (definition == typeof(Dictionary<,>) || definition == typeof(SortedDictionary<,>))
-            {
-                Type[] arguments = type.GetGenericArguments();
-                keyType = arguments[0];
-                valueType = arguments[1];
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static string TokenKind(Type declaredType, bool unsupported, bool writesStringTokens)
@@ -277,12 +329,12 @@ internal static class ContractCanonicalizer
             return "any";
         }
 
-        if (TryDescribeKeyAndValue(type, out _, out _))
+        if (TypeShapes.TryGetDictionaryTypes(type, out _, out _))
         {
             return "object";
         }
 
-        if (IsEnumerable(type))
+        if (TypeShapes.IsEnumerable(type))
         {
             return "array";
         }
@@ -295,10 +347,6 @@ internal static class ContractCanonicalizer
         return "object";
     }
 
-    private static bool IsEnumerable(Type type) =>
-        type != typeof(string) &&
-        (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) || type.IsArray);
-
     private static string KindName(JsonTypeInfoKind kind) => kind switch
     {
         JsonTypeInfoKind.Object => "object",
@@ -307,28 +355,4 @@ internal static class ContractCanonicalizer
         JsonTypeInfoKind.None => "scalar",
         _ => kind.ToString().ToLowerInvariant(),
     };
-
-    private static string TypeName(Type type)
-    {
-        if (type.IsArray)
-        {
-            return string.Concat(TypeName(type.GetElementType()!), "[]");
-        }
-
-        if (type.IsGenericType)
-        {
-            string definition = type.GetGenericTypeDefinition().FullName ?? type.Name;
-            int marker = definition.IndexOf('`', StringComparison.Ordinal);
-
-            if (marker >= 0)
-            {
-                definition = definition[..marker];
-            }
-
-            string arguments = string.Join(",", type.GetGenericArguments().Select(TypeName));
-            return $"{definition}<{arguments}>";
-        }
-
-        return type.FullName ?? type.Name;
-    }
 }

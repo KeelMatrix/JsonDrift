@@ -13,17 +13,31 @@ internal static class CanonicalOutput
 {
     public const string RepresentativeRootFileName = "order-envelope.contract.json";
 
-    public static int Write(string directory)
+    public static string RenderDocument()
+    {
+        JsonTypeInfo contract = JsonContractOptions.Reflection().GetTypeInfo(typeof(OrderEnvelope));
+        return ContractCanonicalizer.Canonicalize(contract);
+    }
+
+    /// <summary>
+    /// Writes the canonical document and returns the exact bytes that were written to disk, so line-ending
+    /// and byte order mark properties can be asserted on the artifact rather than on an intermediate value.
+    /// </summary>
+    public static byte[] WriteDocument(string directory)
     {
         Directory.CreateDirectory(directory);
 
-        JsonTypeInfo contract = JsonContractOptions.Reflection().GetTypeInfo(typeof(OrderEnvelope));
-        string document = ContractCanonicalizer.Canonicalize(contract);
+        string path = Path.Combine(directory, RepresentativeRootFileName);
+        File.WriteAllText(path, RenderDocument(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        return File.ReadAllBytes(path);
+    }
+
+    public static int Write(string directory)
+    {
+        byte[] bytes = WriteDocument(directory);
         string path = Path.Combine(directory, RepresentativeRootFileName);
 
-        File.WriteAllText(path, document, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-        byte[] bytes = File.ReadAllBytes(path);
         Console.WriteLine($"canonical-document: {path}");
         Console.WriteLine($"bytes: {bytes.Length}");
         Console.WriteLine($"sha256: {Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant()}");

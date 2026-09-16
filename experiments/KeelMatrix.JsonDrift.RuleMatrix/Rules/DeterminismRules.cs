@@ -28,14 +28,19 @@ internal static class DeterminismRules
             $"sha256={Sha256(first)}, {Sha256(second)}, {Sha256(third)}; equal={first == second && second == third}",
             first == second && second == third));
 
+        byte[] written = WriteCanonicalDocument();
+        bool hasByteOrderMark = written.Length >= 3 && written[0] == 0xEF && written[1] == 0xBB && written[2] == 0xBF;
+        bool hasCarriageReturn = written.Contains((byte)'\r');
+        bool endsWithLineFeed = written.Length > 0 && written[^1] == (byte)'\n';
+
         results.Add(Check.Assert(
             "D01.canonical-document.line-endings",
             "Canonical document",
-            "the canonical document is produced for a representative root contract",
-            "canonical=LF and no byte order mark content",
-            !first.Contains('\r') && first.EndsWith('\n') ? "canonical=LF" : "canonical=NotLF",
-            $"containsCarriageReturn={first.Contains('\r')}; endsWithLineFeed={first.EndsWith('\n')}; length={first.Length}",
-            !first.Contains('\r') && first.EndsWith('\n')));
+            "the canonical document is written to disk for a representative root contract",
+            "canonicalBytes=LF terminated, no carriage return, no byte order mark",
+            $"bytes={written.Length}; byteOrderMark={hasByteOrderMark}; carriageReturn={hasCarriageReturn}; lineFeedTerminated={endsWithLineFeed}",
+            $"firstBytes={Convert.ToHexString(written, 0, Math.Min(3, written.Length))}",
+            !hasByteOrderMark && !hasCarriageReturn && endsWithLineFeed));
 
         string[] hostPaths = { Environment.CurrentDirectory, Path.GetTempPath(), "C:\\", "\\\\" };
         string foundPath = hostPaths.FirstOrDefault(path => !string.IsNullOrEmpty(path) && first.Contains(path, StringComparison.OrdinalIgnoreCase)) ?? string.Empty;
@@ -80,4 +85,27 @@ internal static class DeterminismRules
 
     private static string Sha256(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..16];
+
+    /// <summary>
+    /// Writes the canonical document through the same code path the validation script compares, so the
+    /// assertions apply to the bytes of the artifact rather than to an intermediate string.
+    /// </summary>
+    private static byte[] WriteCanonicalDocument()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "jsondrift-canonical-document-check");
+        byte[] bytes = CanonicalOutput.WriteDocument(directory);
+
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return bytes;
+    }
 }

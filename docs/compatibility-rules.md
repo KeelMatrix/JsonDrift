@@ -28,7 +28,8 @@ shapes were lost. A reading is **lossless** when deserialization succeeds and no
 contained was lost. Members written *in addition* by the later contract are not losses; they are new data.
 
 The JSON comparison is structural: a member is compared by name, JSON token kind, and value. Arrays are
-compared element by element, objects member by member, and numbers by value.
+compared element by element, objects member by member, and numbers by value, so a number that keeps its value
+while changing its serialized form (`5` written as `5.0`) is not a loss (`C01.document-comparison.numbers-by-value`).
 
 ### Why reading is defined as lossless reading
 
@@ -76,13 +77,15 @@ probe for the listed change; `control` is the unchanged-contract case.
 | R05b | A nullable value member becomes non-nullable (`int?` to `int`) | Incompatible | Compatible | Incompatible | `null` can no longer be converted to the member type, so earlier documents that carry an explicit `null` are rejected. Proof: `R05.nullability.value-nullable-removed`, `.forward`, `.full`. |
 | R05c | A non-nullable value member becomes nullable (`int` to `int?`) | Compatible | Incompatible | Incompatible | Earlier documents always carry a value. Later documents may carry `null`, which the earlier contract rejects. Proof: `R05.nullability.value-nullable-added`, `.forward`, `.full`. |
 | R06 | A numeric member is written as a JSON string, or a string member is read as a number | Incompatible | Incompatible | Incompatible | The token kind is part of the wire contract: numbers are not converted to strings or back, and both directions are rejected. Reading earlier string tokens as numbers while allowing reading from strings parses, but the re-written document changes token kind from string to number, which is still reported (`R06.token-kind.string-to-number.permissive`). Proof: `R06.token-kind.number-to-string`, `.forward`, `.full`. |
-| R06b | The numeric width of a member changes (`int` to `long`) | Compatible | Compatible | Compatible | The token kind stays numeric and the value is preserved. Proof: `R06.token-kind.numeric-width`, `.forward`, `.full`. |
+| R06b | A member widens from `int` to `long` | Compatible | Compatible | Compatible | The token kind stays numeric and every `int` value is representable as `long`. The probes use the boundary values `int.MaxValue` and `int.MinValue`. Proof: `R06.token-kind.numeric-widening`, `.forward`, `.full`. |
+| R06c | A member narrows from `long` to `int` | Incompatible | Compatible | Incompatible | The token kind stays numeric, but a value outside the target range can no longer be converted: a `long` document carrying `3000000000` read by an `int` member is rejected with `JsonException: The JSON value could not be converted to System.Int32`. The recorded probe therefore uses a value beyond the narrower type's range. Proof: `R06.token-kind.numeric-narrowing`, `.forward`, `.full`. |
 | R07 | An array or list member becomes an object member, or an object member becomes a scalar member | Incompatible | Incompatible | Incompatible | The container shape is part of the wire contract and the conversion is rejected in both directions. Proof: `R07.shape.list-to-dictionary`, `R07.shape.dictionary-to-scalar` and their `.forward`, `.full` checks. |
 | R07b | A list member becomes an array member (`List<T>` to `T[]`) | Compatible | Compatible | Compatible | Both containers produce the same JSON array. Proof: `R07.shape.list-to-array`, `.forward`, `.full`. |
-| R07c | A dictionary key type changes while JSON object keys stay strings | Compatible | Compatible | Compatible | JSON object member names are strings in both contracts and the document is unchanged. Proof: `R07.shape.dictionary-key-type`, `.forward`, `.full`. |
+| R07c | A dictionary key type changes while JSON object keys stay strings | Unsupported | Unsupported | Unsupported | Reader compatibility depends on whether every key the earlier contract could write is representable in the later key type, which the contract model does not record. Both directions are executed: the key `"1"` written by an earlier `Dictionary<string, int>` is read back unchanged by a later `Dictionary<int, int>` (`R07.shape.dictionary-key-type.representable`), while the key `"abc"` is rejected with `JsonException: The JSON value could not be converted to System.Int32` (`R07.shape.dictionary-key-type.unrepresentable`). One key value space is therefore insufficient evidence with missing keys, and key type identity alone is insufficient evidence without it, so the change is reported unsupported. Proof: `R07.shape.dictionary-key-type`. |
 | R08 | An enum member is renamed while the contract uses string tokens | Incompatible | Incompatible | Incompatible | The renamed member is no longer recognized and deserialization is rejected in both directions. Proof: `R08.enum.member-rename`, `.forward`, `.full`. |
 | R08b | An enum representation switches between numeric and string tokens | Incompatible | Incompatible | Incompatible | A string-token contract accepts earlier numeric tokens with the default `[JsonStringEnumConverter]` but re-writes them as strings, so the token shape changes (`R08.enum.number-to-string`); with `allowIntegerValues: false` the earlier numeric document is rejected outright (`R08.enum.number-to-string.tokens-only`). A numeric contract reading earlier string tokens is rejected. Proof: `R08.enum.number-to-string`, `.forward`, `.full`. |
 | R08c | An enum member is inserted into a numeric representation | Compatible | Compatible | Compatible | The numeric token round-trips unchanged. This is a structural-only classification; see the semantic limitation below. Proof: `R08.enum.member-insertion`, `.forward`, `.full`. |
+| R08d | The naming policy applied to string enum members changes | Incompatible | Incompatible | Incompatible | The members are still written as strings, but their serialized names change: a document written with an `inProgress` policy cannot be read by a contract whose converter writes `in_progress`, and deserialization is rejected in both directions, because the earlier name is not recognized as an enum member. Proof: `R08.enum.naming-policy`, `R08.enum.naming-policy.document`, `.forward`, `.full`. |
 | R09 | A serialized member becomes ignored (`[JsonIgnore]`), or null members stop being written (`JsonIgnoreCondition`) | Incompatible | Compatible | Incompatible | Ignoring a member removes it from the wire contract exactly like removal, and stopping the write of null members means a member the earlier document contained is no longer present in the later document. Including an ignored member again is compatible in the reading direction, because earlier documents simply do not contain it (`R09.ignore.member-included`). Proof: `R09.ignore.member-excluded`, `R09.ignore.condition-when-writing-null` and their `.forward`, `.full`, `.control` checks. |
 | R10 | A polymorphic discriminator value or discriminator property name changes | Incompatible | Incompatible | Incompatible | A renamed discriminator value is reported as an unrecognized discriminator id; a renamed discriminator property leaves the abstract contract without a discriminator and is rejected. Proof: `R10.polymorphism.discriminator-value-renamed`, `R10.polymorphism.discriminator-property-renamed` and their `.forward`, `.full` checks. |
 | R10b | An additional derived type is registered | Compatible | Compatible | Compatible | Earlier documents keep resolving because their discriminator values are still registered. Proof: `R10.polymorphism.derived-type-added`, `.forward`, `.full`. |
@@ -97,8 +100,17 @@ probe for the listed change; `control` is the unchanged-contract case.
 ## Unsupported and unclassified metadata
 
 An unrecognized converter or metadata source prevents sound classification. These cases are reported as
-unsupported, are never mapped to compatible, and fail an assertion that requires a compatible result. The
-detection is based on declared metadata only; JsonDrift never executes a converter to discover its behavior.
+unsupported, are never mapped to compatible, and fail an assertion that requires a compatible result.
+Converter detection is based on declared metadata only; an application converter is never executed, and the
+only serializer code that runs while a contract is recorded is the framework string-enum converter that
+produces an enum member's wire name (see D05).
+
+A converter is reachable through the member itself, through the element, key, and value types of a member,
+and through the members of a referenced contract, so the same converter check is applied at every reachable
+level. A converter is known only when it ships in the framework `System.Text.Json` assembly: an application
+converter that declares a `System.Text.Json` namespace is not framework metadata. Traversal is bounded at
+eight levels; a contract that nests deeper is reported unsupported rather than assumed classifiable, and a
+visited-type set keeps recursive contracts finite.
 
 | Rule | Case | Classification | Reason and proof |
 |---|---|---|---|
@@ -107,22 +119,50 @@ detection is based on declared metadata only; JsonDrift never executes a convert
 | R14c | A custom converter is registered on the serializer options | Unsupported | The converter applies to the member type without a member-level declaration. Proof: `R14.converter.opaque-from-options`. |
 | R14d | A custom metadata resolver supplies the contract | Unsupported | A custom resolver can replace a member converter without leaving a declared marker, so its metadata cannot be classified. Metadata from the default reflection resolver and from source-generated contexts is accepted. Proof: `R14.converter.custom-metadata-resolver`, `R14.converter.default-resolver-supported`, `R14.converter.source-generation-resolver-supported`. |
 | R14e | A framework converter the library knows is applied | Supported | `JsonStringEnumConverter` is classified as string enum tokens rather than as opaque. Proof: `R14.converter.known-converter-supported`. |
+| R14f | A collection or array element type declares a custom converter | Unsupported | `List<T>` and `T[]` are resolved to their element type and checked the same way a member's own type is. Proof: `R14.converter.opaque-collection-element`, `R14.converter.opaque-array-element`. |
+| R14g | A dictionary value type declares a custom converter, or an options converter applies to it | Unsupported | Dictionary key and value types are resolved and checked. Proof: `R14.converter.opaque-dictionary-value`, `R14.converter.opaque-options-dictionary-value`. |
+| R14h | A custom converter applies to the root type, or to an element, key, or value type of a root collection | Unsupported | The same reachable-type walk is applied to the root type, so a contract that degrades to a single opaque token, or whose root is a collection of opaque elements, is not reported as supported. Proof: `R14.converter.opaque-root-from-options`, `R14.converter.opaque-root-element`, `R14.converter.opaque-root-dictionary-value`. |
+| R14i | An application converter declares a `System.Text.Json` namespace | Unsupported | Converter provenance is decided by assembly identity, not by namespace. Proof: `R14.converter.opaque-namespace-shadow`. |
+| R14j | A custom converter is reachable two or three levels below the member | Unsupported | Element, key, and value types and the members of referenced contracts are walked to the traversal budget. Proof: `R14.converter.opaque-nested-element-depth-2`, `R14.converter.opaque-nested-element-depth-3`, `R14.converter.opaque-nested-combination`, `R14.converter.opaque-object-graph-depth-1`, `R14.converter.opaque-object-graph-depth-2`, `R14.converter.opaque-object-graph-depth-3`. |
+| R14k | A converter reachable below the first level produces a lossless round trip | Unsupported | A lossless round trip is not evidence that metadata is classifiable. Proof: `R14.converter.opaque-nested-round-trip.still-unsupported`. |
+| R14l | A member nests deeper than the classification traversal budget | Unsupported | A contract that cannot be walked to its leaves cannot be classified, so exhausting the budget is reported as unsupported rather than as supported. Proof: `R14.converter.traversal-depth-limit`. |
 | U02 | A run contains compatible changes and one unclassifiable contract | Unsupported | A lossless round trip is not sufficient: a custom converter can round-trip a document and still be unclassifiable, so the result stays unsupported and the assertion fails. Proof: `R14.converter.lossless-round-trip.still-unsupported`, `U02.unsupported.never-green`. |
+
+Every path in R14f-R14l is also recorded as a contract: the classifier reports it unsupported, the canonical
+document does not describe it as supported, and a report that contains it cannot be green. The checks
+listed above assert all three facts for each path.
+
+## Measurement harness and document comparison
+
+The experiment's own measurement behavior is part of the evidence: a probe that cannot run must not be able to
+pass as either a compatible or an incompatible reading, and an already-unsupported member must not be resolved
+further by the contract model.
+
+| Rule | Case | Expectation | Evidence |
+|---|---|---|---|
+| R15 | A probe raises an exception the harness does not expect | The probe is recorded as a fault, and every check built on the probe fails | `R15.probe.unexpected-exception` |
+| R15b | A contract rejects a document because a member is required | The probe is recorded as a rejection, not a fault, and the incompatible expectation holds | `R15.probe.contract-rejection` |
+| R15c | A member is already classified unsupported | No shape is resolved for that member, while a classifiable complex member still records its shape | `R15.canonical-document.unsupported-member-shape-skipped` |
+| C01 | A number keeps its value but changes serialized form | Numbers compare by value: `5` and `5.0` are equal, while a changed value or a changed token kind is a difference | `C01.document-comparison.numbers-by-value`, `C01.document-comparison.number-and-token-changes` |
 
 ## Canonical contract document
 
 The canonical document describes the effective contract in a stable form: members sorted by name, a fixed key
 order, `contractVersion` for future format revisions, nested shapes described by reference so recursive
 contracts terminate, LF line endings, UTF-8 without a byte order mark, and no timestamps, host paths, or
-process-specific values.
+process-specific values. An enum member also records its wire identity - the serialized name the applied
+framework converter produces, or the numeric value - so a change that only alters an enum member's wire name
+is visible in the document instead of producing identical bytes.
 
 | Rule | Property | Evidence |
 |---|---|---|
 | D01 | Repeated canonicalization of the same contract is byte-identical | Three independently created option sets produce the same document (`D01.canonical-document.repeatable`); cross-process equality is checked by `scripts/validate-rule-matrix.ps1`. |
-| D01b | The document is LF-terminated and contains no carriage returns | `D01.canonical-document.line-endings`. |
+| D01b | The written document is LF-terminated, contains no carriage returns, and has no UTF-8 byte order mark | The check asserts on the bytes written by the same code path the validation script compares (`D01.canonical-document.line-endings`). |
 | D01c | The document contains no host paths | `D01.canonical-document.host-independent`. |
 | D02 | Equivalent option sets produce identical documents regardless of converter registration order | `D02.canonical-document.options-equivalent`. |
 | D03 | A contract that refers to its own type canonicalizes deterministically | `D03.canonical-document.recursive-type`. |
+| D04 | The counts quoted by the scope documentation are derived from the matrix output rather than counted by hand | `D04.matrix.check-count`, `D04.policy.full-compatible-count`, `D04.policy.unsupported-count`. |
+| D05 | The document records the wire identity of every enum member: its serialized name when the applied framework converter writes strings, or its numeric value | `R08.enum.string-tokens.wire-identity`, `R08.enum.numeric.wire-identity`, `R08.enum.naming-policy.document`, `R08.enum.member-rename.document`. |
 
 ## Documented limitations
 
@@ -134,12 +174,17 @@ process-specific values.
    metadata change, not a reading failure, unless the reader enables nullable annotation enforcement, in
    which case the same document is rejected. Both measurements are recorded above.
 3. **Converter detection is declaration-based.** Converters are classified from the converter attribute on the
-   member, on the member type, or on the root type, from converters registered on the options, and from the
-   identity of the metadata resolver. A contract whose metadata comes from an unrecognized resolver is
-   reported as unsupported rather than inspected.
+   member, on the member type, on a reachable element, key, or value type, or on the root type, from
+   converters registered on the options, and from the identity of the metadata resolver. Reachable types are
+   walked to a depth of eight; a contract that nests deeper, or whose referenced metadata cannot be resolved,
+   is reported as unsupported rather than inspected further.
 4. **Only measured behavior is claimed.** A serializer feature that is not listed in this document has no
    classification and must be reported as unsupported or unclassified until it is measured.
-5. **Baseline storage, limits, and version migration are not covered here.** This document defines
+5. **A string enum member's wire name is read from the serializer.** The name is produced by the framework
+   string-enum converter that the declared metadata applies, which is how an applied naming policy becomes
+   observable. Application converters are never executed, and a string enum member whose wire name cannot be
+   produced is reported as unsupported.
+6. **Baseline storage, limits, and version migration are not covered here.** This document defines
    classification semantics only.
 
 ## Reproducing the evidence

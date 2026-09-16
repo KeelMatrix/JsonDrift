@@ -37,3 +37,17 @@ internal sealed class StateHolderExtended
 {
     public OrderStateExtended State { get; set; }
 }
+
+// R08 - the same member written as a string whose serialized name depends on the applied naming policy
+internal enum OrderStage
+{
+    Created = 0,
+    InProgress = 1,
+    Shipped = 2,
+    Cancelled = 3,
+}
+
+internal sealed class StageHolder
+{
+    public OrderStage Stage { get; set; }
+}

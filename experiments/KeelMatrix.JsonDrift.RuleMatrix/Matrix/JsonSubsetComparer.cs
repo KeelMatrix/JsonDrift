@@ -62,13 +62,38 @@ internal static class JsonSubsetComparer
                 break;
 
             default:
-                if (!string.Equals(earlier.GetRawText(), later.GetRawText(), StringComparison.Ordinal))
+                if (!ValueEquals(earlier, later))
                 {
                     differences.Add($"{path} ({Describe(earlier)} -> {Describe(later)})");
                 }
 
                 break;
         }
+    }
+
+    /// <summary>
+    /// Numbers are compared by value, so a change of serialized form that carries the same number
+    /// (<c>5</c> written as <c>5.0</c>) is not reported as a loss. Every other token is compared by
+    /// serialized form.
+    /// </summary>
+    private static bool ValueEquals(JsonElement earlier, JsonElement later) =>
+        earlier.ValueKind == JsonValueKind.Number && later.ValueKind == JsonValueKind.Number
+            ? NumbersEqual(earlier, later)
+            : string.Equals(earlier.GetRawText(), later.GetRawText(), StringComparison.Ordinal);
+
+    private static bool NumbersEqual(JsonElement earlier, JsonElement later)
+    {
+        if (earlier.TryGetDecimal(out decimal earlierDecimal) && later.TryGetDecimal(out decimal laterDecimal))
+        {
+            return earlierDecimal == laterDecimal;
+        }
+
+        if (earlier.TryGetDouble(out double earlierDouble) && later.TryGetDouble(out double laterDouble))
+        {
+            return earlierDouble == laterDouble;
+        }
+
+        return string.Equals(earlier.GetRawText(), later.GetRawText(), StringComparison.Ordinal);
     }
 
     private static string Describe(JsonElement element) => element.ValueKind switch

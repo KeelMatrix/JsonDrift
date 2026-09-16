@@ -17,19 +17,30 @@ Evidence:
   (`R01.property-add.optional`), adding captured members (`R11.extension-data.added`), and adding a bound
   constructor parameter (`R12.binding.constructor-parameter-added`). An earlier contract reading a later
   document silently drops the member the later contract introduced.
-* Only six of the measured changes are compatible in both directions: adding a member that is excluded from
-  the wire contract (`R01.property-add.ignored`), a nullable reference member becoming non-nullable with
-  default options (`R05.nullability.reference-nullable-removed`), a numeric width change
-  (`R06.token-kind.numeric-width`), `List<T>` becoming `T[]` (`R07.shape.list-to-array`), a dictionary key
-  type change while JSON keys stay strings (`R07.shape.dictionary-key-type`), and registering an additional
-  derived type (`R10.polymorphism.derived-type-added`). Every other measured change is full-incompatible.
+* Only a small set of measured changes is compatible in both directions. The set is read from the matrix output
+  and its size is asserted by `D04.policy.full-compatible-count`, so the number in this document cannot drift
+  from the executed evidence: adding a member that is excluded from the wire contract
+  (`R01.property-add.ignored`), a nullable reference member becoming non-nullable with default options
+  (`R05.nullability.reference-nullable-removed`), an `int` member widening to `long`
+  (`R06.token-kind.numeric-widening`), `List<T>` becoming `T[]` (`R07.shape.list-to-array`), inserting an enum
+  member into a numeric representation (`R08.enum.member-insertion`), and registering an additional derived
+  type (`R10.polymorphism.derived-type-added`). Every other measured change is incompatible under at least one
+  policy. The unsupported set is likewise read from the matrix output
+  (`D04.policy.unsupported-count` reports the 22 checks that record unsupported metadata).
+* Two measured changes are deliberately not classified in either direction. A dictionary key-type change is
+  reported unsupported (`R07.shape.dictionary-key-type`) because compatibility depends on the earlier key
+  value space, which the contract model does not record: the key `"1"` is read back unchanged by an
+  `int`-keyed contract while the key `"abc"` is rejected. A narrowing numeric change is classified
+  incompatible on its own evidence (`R06.token-kind.numeric-narrowing`) rather than sharing the widening
+  rule's classification.
 * A forward or full policy therefore forces a semantic decision that `ReaderBackward` does not: either the
   lossless definition is kept and most evolution is rejected, or a parse-only definition is introduced, under
   which a rename or removal is accepted in the reverse direction while the value is silently dropped. The
   parse-only variant has its own rule-by-rule proof obligation and is not part of the measured matrix.
 * `ReaderBackward` is the only policy whose semantics are proven for every shipped rule in both a change case
-  and an unchanged-contract control case: 131 executed checks, all agreeing with the recorded
-  classification.
+  and an unchanged-contract control case: the matrix runs 165 executed checks and all of them agree with the
+  recorded classification. The count is asserted by `D04.matrix.check-count`, so adding, removing, or
+  reclassifying a check fails the matrix until this document is updated with it.
 
 Consequence for the API: one policy is exposed for the first release, so there is no second, weaker definition
 of "compatible" for users to misinterpret. The forward and full measurements already exist in the experiment,
