@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
@@ -43,6 +44,23 @@ internal static class UnsupportedRules
             "Opaque converter",
             "a framework string enum converter is applied to an enum member",
             ContractClassifier.DescribeUnsupported(reflection.GetTypeInfo(typeof(PriorityHolder)))));
+
+        JsonSerializerOptions withEnumConverter = JsonContractOptions.Reflection(new JsonStringEnumConverter());
+        JsonTypeInfo enumHolder = withEnumConverter.GetTypeInfo(typeof(StateHolderNumeric));
+        string? enumHolderReason = ContractClassifier.DescribeUnsupported(enumHolder);
+        string enumHolderDocument = ContractCanonicalizer.Canonicalize(enumHolder);
+        bool objectContractSupported = ContractClassifier.IsSupported(withEnumConverter.GetTypeInfo(typeof(InvoiceAmounts)));
+        bool recordsStringWireNames = enumHolderDocument.Contains("\"Shipped\": \"Shipped\"", StringComparison.Ordinal);
+
+        results.Add(Check.Assert(
+            "R14.converter.options-allowlisted-converter-supported",
+            "Opaque converter",
+            "a framework string enum converter is registered on the options: it applies to the enum member and does not apply to an object contract",
+            "metadata=Supported for both contracts and the enum wire names are recorded",
+            enumHolderReason is null ? "metadata=Supported" : "metadata=Unsupported",
+            $"enumContract: {(enumHolderReason is null ? "Supported" : $"Unsupported ({MetadataDiscoverySources.Reason(enumHolderReason)})")}; " +
+            $"objectContract: {(objectContractSupported ? "Supported" : "Unsupported")}; recordsStringWireNames={recordsStringWireNames}",
+            enumHolderReason is null && objectContractSupported && recordsStringWireNames));
 
         var customResolverOptions = new JsonSerializerOptions { TypeInfoResolver = new ConverterInjectingResolver() };
 

@@ -16,9 +16,21 @@ internal static class ContractDocument
         Parse(document)["root"]?.AsObject()
         ?? throw new InvalidOperationException("the canonical document has no root object");
 
+    /// <summary>The recorded serializer option values of the canonical document.</summary>
+    public static JsonObject Options(string document) =>
+        Parse(document)["options"]?.AsObject()
+        ?? throw new InvalidOperationException("the canonical document has no recorded option values");
+
+    /// <summary>The recorded value of one serializer option family, or null when it was not recorded.</summary>
+    public static string? OptionValue(string document, string optionId) =>
+        Options(document)[optionId]?.GetValue<string>();
+
     public static bool RootSupported(string document) =>
         Root(document)["supported"]?.GetValue<bool>()
         ?? throw new InvalidOperationException("the canonical document root has no supported flag");
+
+    /// <summary>The classification rule the document recorded for the root contract.</summary>
+    public static string? RootRule(string document) => Root(document)["rule"]?.GetValue<string>();
 
     /// <summary>
     /// The aggregate support state: false when any reachable metadata recorded by the document is

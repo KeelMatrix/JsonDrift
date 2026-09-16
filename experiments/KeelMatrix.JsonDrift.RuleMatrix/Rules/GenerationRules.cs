@@ -15,22 +15,29 @@ internal static class GenerationRules
     {
         var results = new List<CheckOutcome>();
         JsonSerializerOptions reflection = JsonContractOptions.Reflection();
-        JsonSerializerOptions omitsNulls = JsonContractOptions.Reflection();
-        omitsNulls.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        JsonSerializerOptions omitsNulls = JsonContractOptions.OmitsNullMembers();
 
         TelemetryContext context = TelemetryContext.Default;
 
-        string fromReflection = ContractCanonicalizer.Canonicalize(reflection.GetTypeInfo(typeof(TelemetryBatch)));
+        // The two metadata sources are compared under option sets whose recorded values are equivalent, so the
+        // verdict rests on the metadata source and not on an option difference the context declares.
+        JsonTypeInfo fromReflectionContract = omitsNulls.GetTypeInfo(typeof(TelemetryBatch));
+        string fromReflection = ContractCanonicalizer.Canonicalize(fromReflectionContract);
         string fromGeneration = ContractCanonicalizer.Canonicalize(context.TelemetryBatch);
+        bool optionsEquivalent = OptionEquivalent(fromReflectionContract, context.TelemetryBatch);
+        bool identical = string.Equals(fromReflection, fromGeneration, StringComparison.Ordinal);
 
         results.Add(Check.Assert(
             "R13.source-generation.metadata-parity",
             "Source-generated metadata",
-            "the same contract is described from reflection metadata and from a source-generated context",
-            "metadata=Equivalent",
-            string.Equals(fromReflection, fromGeneration, StringComparison.Ordinal) ? "metadata=Equivalent" : "metadata=Different",
-            $"reflection sha256={Sha256(fromReflection)}; source-generated sha256={Sha256(fromGeneration)}; identical={string.Equals(fromReflection, fromGeneration, StringComparison.Ordinal)}",
-            string.Equals(fromReflection, fromGeneration, StringComparison.Ordinal)));
+            "the same contract is described from reflection metadata and from a source-generated context under option sets whose recorded values are equivalent",
+            "metadata=Equivalent, options=Equivalent",
+            identical && optionsEquivalent
+                ? "metadata=Equivalent, options=Equivalent"
+                : $"metadata={(identical ? "Equivalent" : "Different")}, options={(optionsEquivalent ? "Equivalent" : "Different")}",
+            $"reflection sha256={Sha256(fromReflection)}; source-generated sha256={Sha256(fromGeneration)}; identical={identical}; " +
+            $"reflectionOptions=[{DescribeOptions(fromReflectionContract)}]; sourceGeneratedOptions=[{DescribeOptions(context.TelemetryBatch)}]",
+            identical && optionsEquivalent));
 
         ReadOutcome generationOptions = WireProbe.Across(
             new TelemetryEvent { Name = "login", Detail = null, Count = 1 },
@@ -122,6 +129,19 @@ internal static class GenerationRules
     private static string Sha256(string value) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))
             .ToLowerInvariant()[..16];
+
+    /// <summary>
+    /// Whether two contracts were recorded under option sets with the same recorded values, so a document
+    /// comparison between their metadata sources is a comparison of the metadata and not of the options.
+    /// </summary>
+    private static bool OptionEquivalent(JsonTypeInfo earlier, JsonTypeInfo later) =>
+        SerializerOptionFacts.Read(earlier.Options).Values
+            .SequenceEqual(SerializerOptionFacts.Read(later.Options).Values);
+
+    private static string DescribeOptions(JsonTypeInfo contract) =>
+        string.Join(
+            ", ",
+            SerializerOptionFacts.Read(contract.Options).Values.Select(static value => value.Display));
 
     private static string Classification(ReadOutcome outcome) =>
         outcome.Lossless ? "ReaderBackward=Compatible" : "ReaderBackward=Incompatible";

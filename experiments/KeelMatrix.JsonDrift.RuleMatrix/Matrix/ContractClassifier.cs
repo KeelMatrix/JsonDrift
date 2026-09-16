@@ -304,10 +304,16 @@ internal static class ContractClassifier
         /// <summary>
         /// The resolver and converter checks every node has to pass before its shape is considered. A
         /// resolver that is not a recognized framework metadata source, a resolver chain, resolver modifiers,
-        /// or a converter that is not an allowlisted framework converter all make the node unsupported.
+        /// a converter that is not an allowlisted framework converter, or a serializer option value the
+        /// committed checks were not measured under all make the node unsupported.
         /// </summary>
         private static Classification? Gate(RecordedNode node)
         {
+            if (DescribeUnlistedOptions(node.Options) is Classification optionVerdict)
+            {
+                return optionVerdict;
+            }
+
             if (node.Resolver is not RecordedResolverFact resolver)
             {
                 return Unclassifiable(
@@ -329,6 +335,45 @@ internal static class ContractClassifier
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// The reason a recorded option set cannot be classified, or null when every recorded value is one the
+        /// committed checks are measured under. An option family that was not recorded at all is missing
+        /// evidence rather than an accepted value, so a contract whose option set the traversal failed to
+        /// record cannot produce a supported verdict.
+        /// </summary>
+        private static Classification? DescribeUnlistedOptions(RecordedOptionSet options)
+        {
+            if (options.IsEmpty)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedShapeEvidenceMissing,
+                    Witness(
+                        MetadataSourceKind.OptionsSettings,
+                        "the contract recorded no serializer option values"));
+            }
+
+            string[] unlisted = options.Values
+                .Where(value => !ContractAllowlists.IsAllowlistedOptionValue(value.Kind, value.Value))
+                .Select(static value => value.Display)
+                .ToArray();
+
+            if (unlisted.Length == 0)
+            {
+                foreach (RecordedOptionValue value in options.Values)
+                {
+                    TraversalInventory.Ledger.RecordAcceptedOptionValue(value);
+                }
+
+                return null;
+            }
+
+            return Unclassifiable(
+                RuleIds.UnsupportedOptionUnlisted,
+                Witness(
+                    MetadataSourceKind.OptionsSettings,
+                    $"the contract options set {string.Join(", ", unlisted)}, which the serializer option allowlist does not accept"));
         }
 
         private static Classification? ClassifyResolver(RecordedResolverFact resolver, RecordedNode node)

@@ -103,12 +103,13 @@ probe for the listed change; `control` is the unchanged-contract case.
 | R12b | An added constructor parameter has a default value | Compatible | Incompatible | Incompatible | Earlier documents are read with the default applied; documents written by the later contract carry the member the earlier contract drops. Proof: `R12.binding.constructor-parameter-defaulted`, `.forward`, `.full`. |
 | R12c | A constructor parameter that binds by name is renamed | Incompatible | Incompatible | Incompatible | The renamed parameter no longer binds, so the earlier member is dropped and the value silently becomes the parameter default. Proof: `R12.binding.constructor-parameter-renamed`, `.forward`, `.full`. |
 | R13 | The source-generated context declares different contract options than the previous contract | Incompatible | Compatible | Incompatible | Options declared on `JsonSerializerContext` are part of the effective contract: a context that stops writing null members produces documents that no longer contain them. Proof: `R13.source-generation.context-options`, `.forward`, `.full`. |
-| R13b | The same contract is described from reflection metadata and from a source-generated context | Equivalent | Equivalent | Equivalent | With the same registered types, both metadata sources produce byte-identical canonical contract documents (`R13.source-generation.metadata-parity`), and a required-member change is classified identically by both (`R13.source-generation.classification-parity`). A type the context does not register has no metadata at all and is reported as unavailable (`R13.source-generation.unregistered-type`). |
+| R13b | The same contract is described from reflection metadata and from a source-generated context | Equivalent | Equivalent | Equivalent | With the same registered types and option sets whose recorded values are equivalent, both metadata sources produce byte-identical canonical contract documents (`R13.source-generation.metadata-parity`), and a required-member change is classified identically by both (`R13.source-generation.classification-parity`). A pair whose recorded option values differ is not compared as an equivalent pair: a context that declares `DefaultIgnoreCondition = WhenWritingNull` stops writing null members, which is measured as a reading change (`R13.source-generation.context-options`) and as an option difference in the document. A type the context does not register has no metadata at all and is reported as unavailable (`R13.source-generation.unregistered-type`). |
 
 ## Deny-by-default metadata classification
 
-A contract is **supported** only when its recorded shape and its recorded converter and resolver metadata
-match an explicit allowlist of framework-known constructs. Everything else is reported **unsupported**:
+A contract is **supported** only when its recorded shape, its recorded converter and resolver metadata, and
+its recorded serializer option values match an explicit allowlist of framework-known constructs. Everything
+else is reported **unsupported**:
 
 * a shape the allowlist does not recognize, and a contract whose recorded shape evidence is incomplete;
 * a converter that is not a framework converter on the converter allowlist, decided by assembly identity -
@@ -117,6 +118,8 @@ match an explicit allowlist of framework-known constructs. Everything else is re
   than one resolver, or a default reflection resolver that carries type-info modifiers, because such
   metadata can replace member converters without a declared marker;
 * a scalar type that is not on the framework scalar allowlist;
+* a `JsonSerializerOptions` value that is not one of the values the committed checks are measured under,
+  including a setting the contract model does not name at all (`unsupported.option-unlisted`);
 * a traversal budget that was exhausted, metadata the framework cannot produce, or any node the traversal
   could not classify.
 
@@ -168,17 +171,24 @@ the run applies is checked against the catalogue by `D06.classification-rules.ob
 | `unsupported.shape-evidence-missing` | Unsupported | The recorded shape of the contract has no recorded element, key, value, member, or constructor metadata. |
 | `unsupported.scalar-unlisted` | Unsupported | The recorded scalar type is not on the scalar allowlist. |
 | `unsupported.enum-wire-unresolved` | Unsupported | The wire name of an enum member could not be produced from the recorded framework converter. |
+| `unsupported.option-unlisted` | Unsupported | A recorded `JsonSerializerOptions` value is not one of the values the committed checks are measured under. |
 
 The allowlists the supported rules rest on are compared with the lists in code by
 `D06.allowlist.documented`, and the framework is asked to confirm that every allowlisted scalar type resolves
 to a usable framework converter while a type outside the list is rejected by the same test
-(`D06.allowlist.verified`).
+(`D06.allowlist.verified`). The serializer option values the option allowlist rests on are compared with the
+option profiles the committed checks are measured under and with the values the executed checks were accepted
+under, in both directions, by `D06.allowlist.option-values`: a value the allowlist names but no executed check
+was accepted under fails, and a value an executed check was accepted under that the allowlist does not name
+fails as well.
 
 Allowlisted framework scalar types: System.Boolean, System.Byte, System.SByte, System.Char, System.Int16, System.UInt16, System.Int32, System.UInt32, System.Int64, System.UInt64, System.Int128, System.UInt128, System.Half, System.Single, System.Double, System.Decimal, System.String, System.Guid, System.DateTime, System.DateTimeOffset, System.DateOnly, System.TimeOnly, System.TimeSpan, System.Uri, System.Version, System.Byte[], System.Memory<System.Byte>, System.ReadOnlyMemory<System.Byte>, System.Object, System.Text.Json.JsonElement, System.Text.Json.JsonDocument, System.Text.Json.Nodes.JsonNode
 
 Allowlisted framework converters: System.Text.Json.Serialization.JsonStringEnumConverter, System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>, System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>
 
 Allowlisted metadata resolvers: System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver, System.Text.Json.Serialization.JsonSerializerContext
+
+Allowlisted serializer option values: numberHandling=Strict, referenceHandler=Default, defaultIgnoreCondition=Never, defaultIgnoreCondition=WhenWritingNull, unmappedMemberHandling=Skip, propertyNameCaseInsensitive=false, readCommentHandling=Disallow, allowTrailingCommas=false, maxDepth=0, dictionaryKeyPolicy=Default, ignoreReadOnlyProperties=false, ignoreReadOnlyFields=false, propertyNamingPolicy=Default, respectNullableAnnotations=false, respectRequiredConstructorParameters=false, preferredObjectCreationHandling=Replace
 
 An enum contract is the one framework construct that is classified without a converter being declared: a
 plain enum is written by the framework numeric enum converter, and an enum converter on the allowlist is
@@ -205,7 +215,7 @@ the allowlist names it.
 |---|---|---|---|
 | R14 | A member declares a custom converter | Unsupported | The declared converter type is not part of `System.Text.Json`. Proof: `R14.converter.opaque-property`. |
 | R14b | The root type declares a custom converter | Unsupported | Same, for the whole contract. Proof: `R14.converter.opaque-root`. |
-| R14c | A custom converter is registered on the serializer options | Unsupported | A registered converter the allowlist does not recognize makes every contract that uses those options unsupported, because a converter factory can claim any type and applicability is not probed. Proof: `R14.converter.opaque-from-options`. |
+| R14c | A custom converter is registered on the serializer options | Unsupported | A registered converter the allowlist does not recognize - including a converter factory that can claim any type - makes every contract that uses those options unsupported regardless of the type it is registered against. Proof: `R14.converter.opaque-from-options`, `A01.adversarial.converter-factory`. |
 | R14d | A custom metadata resolver supplies the contract | Unsupported | A custom resolver can replace a member converter without leaving a declared marker, so its metadata cannot be classified. Metadata from the default reflection resolver and from source-generated contexts is accepted. Proof: `R14.converter.custom-metadata-resolver`, `R14.converter.default-resolver-supported`, `R14.converter.source-generation-resolver-supported`. |
 | R14e | A framework converter the library knows is applied | Supported | `JsonStringEnumConverter` is classified as string enum tokens rather than as opaque. Proof: `R14.converter.known-converter-supported`. |
 | R14f | A collection or array element type declares a custom converter | Unsupported | `List<T>` and `T[]` are resolved to their element type and checked the same way a member's own type is. Proof: `R14.converter.opaque-collection-element`, `R14.converter.opaque-array-element`. |
@@ -226,11 +236,41 @@ the allowlist names it.
 | R14s | A registered derived type is itself a collection | Unsupported | The derived type is walked by the same recursion as the root contract, so its element type is recorded and an element type whose converter is opaque makes the contract unsupported. The documents of the readable and the opaque variant differ, and the wire change is measured in both directions. Proof: `R14.converter.opaque-derived-collection-element`, `R14.converter.derived-collection.wire-change`, `R14.converter.derived-shape.document`. |
 | R14t | A registered derived type is itself a dictionary | Unsupported | Same, for the key and value types of a dictionary-shaped derived type. Proof: `R14.converter.opaque-derived-dictionary-value`, `R14.converter.derived-dictionary.wire-change`, `R14.converter.derived-shape.document`. |
 | R14u | A registered derived type is itself a polymorphic base | Unsupported | The derived type's own `PolymorphismOptions` is recorded, so a derived type that registers further derived types is walked to those registrations. Proof: `R14.converter.opaque-derived-polymorphic-base`, `R14.converter.opaque-polymorphic-member-base`. |
+| R14v | A framework converter on the allowlist is registered on the serializer options | Supported | An options-registered allowlisted framework converter is recorded only for the node type it applies to, so registering a string-enum converter records it on the enum nodes it converts and leaves an object contract supported. Proof: `R14.converter.options-allowlisted-converter-supported`. |
 | U02 | A run contains compatible changes and one unclassifiable contract | Unsupported | A lossless round trip is not sufficient: a custom converter can round-trip a document and still be unclassifiable, so the result stays unsupported and the assertion fails. Proof: `R14.converter.lossless-round-trip.still-unsupported`, `U02.unsupported.never-green`. |
 
 Every path in R14f-R14u is also recorded as a contract: the classifier reports it unsupported, the canonical
 document does not describe it as supported in either its own root flag or its aggregate flag, and a report
 that contains it cannot be green. The checks listed above assert all four facts for each path.
+
+### Serializer option settings
+
+A contract is decided by its shape, its converters, its metadata resolver - and by the serializer options it is
+recorded under. The traversal therefore records the value of every `JsonSerializerOptions` setting that changes
+the wire or the reading, once per contract and in a fixed family order, and the canonical document records
+those values at its root. A change of an accepted option value is therefore a document difference instead of a
+pair of byte-identical documents (`D08.canonical-document.options-recorded`).
+
+The recorded families are `NumberHandling`, `ReferenceHandler`, `DefaultIgnoreCondition`,
+`UnmappedMemberHandling`, `PropertyNameCaseInsensitive`, `ReadCommentHandling`, `AllowTrailingCommas`,
+`MaxDepth`, `DictionaryKeyPolicy`, `IgnoreReadOnlyProperties`, `IgnoreReadOnlyFields`, `PropertyNamingPolicy`,
+`RespectNullableAnnotations`, `RespectRequiredConstructorParameters`, and `PreferredObjectCreationHandling`.
+The list is the one the traversal records, so a setting added to the recorded set has to be documented and
+attacked like every other one.
+
+A recorded value is accepted only when the option allowlist names it; every other value is reported through
+`unsupported.option-unlisted`. The allowlist is derived from the option profiles the committed checks are
+measured under rather than written out a second time, so it cannot drift from the checks, and the gate compares
+it with the documented list and with the values the executed checks were accepted under, in both directions
+(`D06.allowlist.option-values`). Every option family is exercised by an adversarial check that sets an unlisted
+value and requires the contract to fail closed (`A01.adversarial.options-*`).
+
+An option value that a committed check only probes as a reading behaviour - `NumberHandling =
+AllowReadingFromString`, `RespectNullableAnnotations = true`, `RespectRequiredConstructorParameters = true`, or
+a naming policy applied while measuring a serialized-name change, for example - is not accepted for
+classification, because no committed check classifies a contract under it. Such a contract is reported
+unsupported, which is the safe direction: the option allowlist never claims a value the matrix only measured
+through the behaviour of a probe, and every option family keeps a value the adversarial set can attack.
 
 ### Adversarial checks
 
@@ -251,6 +291,21 @@ case must fail closed. The recorded outcomes are:
 | `A01.adversarial.resolver-chain` | A custom `TypeInfoResolver` chain | Unsupported |
 | `A01.adversarial.generic-argument` | A converter declared on a type used as a generic argument | Unsupported |
 | `A01.adversarial.unlisted-scalar-type` | A scalar member type outside the scalar allowlist | Unsupported |
+| `A01.adversarial.options-number-handling` | `NumberHandling = WriteAsString` and `NumberHandling = AllowReadingFromString` | Unsupported |
+| `A01.adversarial.options-reference-handler` | `ReferenceHandler = Preserve` | Unsupported |
+| `A01.adversarial.options-default-ignore-condition` | `DefaultIgnoreCondition = WhenWritingDefault` | Unsupported |
+| `A01.adversarial.options-unmapped-member-handling` | `UnmappedMemberHandling = Disallow` | Unsupported |
+| `A01.adversarial.options-property-name-case-insensitive` | `PropertyNameCaseInsensitive = true` | Unsupported |
+| `A01.adversarial.options-read-comment-handling` | `ReadCommentHandling = Skip` | Unsupported |
+| `A01.adversarial.options-allow-trailing-commas` | `AllowTrailingCommas = true` | Unsupported |
+| `A01.adversarial.options-max-depth` | `MaxDepth = 8` | Unsupported |
+| `A01.adversarial.options-dictionary-key-policy` | `DictionaryKeyPolicy = CamelCase` | Unsupported |
+| `A01.adversarial.options-ignore-read-only-properties` | `IgnoreReadOnlyProperties = true` | Unsupported |
+| `A01.adversarial.options-ignore-read-only-fields` | `IgnoreReadOnlyFields = true` | Unsupported |
+| `A01.adversarial.options-property-naming-policy` | `PropertyNamingPolicy = CamelCase` | Unsupported |
+| `A01.adversarial.options-respect-nullable-annotations` | `RespectNullableAnnotations = true` | Unsupported |
+| `A01.adversarial.options-respect-required-constructor-parameters` | `RespectRequiredConstructorParameters = true` | Unsupported |
+| `A01.adversarial.options-preferred-object-creation-handling` | `PreferredObjectCreationHandling = Populate` | Unsupported |
 
 ### Metadata discovery path inventory
 
@@ -267,6 +322,7 @@ matching path binding fails the matrix instead of passing by default.
 | `member-converter-attribute` | `R14.converter.opaque-member-converter` | The converter attribute on the member. Bounded because a member is recorded once per declaring contract. |
 | `member-custom-converter` | `R14.converter.opaque-member-custom-converter` | The converter the metadata provider assigned to a member without an attribute. Checked against framework provenance exactly like an attribute converter. |
 | `options-converters` | `R14.converter.opaque-root-from-options` | Every converter registered in `JsonSerializerOptions.Converters`, recorded in declared converter type order. Bounded by the visited-type set. |
+| `options-settings` | `A01.adversarial.options-number-handling` | The value of every `JsonSerializerOptions` setting that changes the wire or the reading, recorded once per contract in a fixed family order and compared with the option allowlist. Bounded because every family is read from the same option set for every visited node, and a value the allowlist does not name is reported unsupported. |
 | `enumerable-element-types` | `R14.converter.opaque-collection-element` | The element type of every visited array or enumerable type, resolved from the framework element type with the generic shape as the fallback. Bounded by the traversal budget. |
 | `dictionary-key-types` | `R14.converter.opaque-dictionary-key` | The key type of every visited dictionary type. Bounded by the traversal budget. |
 | `dictionary-value-types` | `R14.converter.opaque-dictionary-value` | The value type of every visited dictionary type. Bounded by the traversal budget. |
@@ -317,6 +373,12 @@ The root record also states the whole-contract support verdict, which includes e
 of inferring safety from the root flag, because a contract can have a classifiable root and still contain
 unsupported metadata below it.
 
+The document root also records the serializer option values the contract was recorded under, in the fixed
+order of the option families. An option value that the allowlist accepts is part of the document, so two
+contracts that keep the same shape and differ only in an accepted option value produce different documents
+(`D08.canonical-document.options-recorded`), and an option value the allowlist does not accept is recorded with
+the unsupported verdict and its rule (`unsupported.option-unlisted`).
+
 A registered derived type is described with its discriminator, its type name, its support state, and its
 recorded content: its members, its own element, key, or value types when the derived type is a collection or
 a dictionary, and its own registered derived types when the derived type is itself a polymorphic base. A
@@ -332,8 +394,9 @@ byte-identical.
 | D03 | A contract that refers to its own type canonicalizes deterministically | `D03.canonical-document.recursive-type`. |
 | D04 | The counts quoted by the scope documentation are derived from the matrix output rather than counted by hand | `D04.matrix.check-count`, `D04.policy.full-compatible-count`, `D04.policy.unsupported-count`. |
 | D05 | The document records the wire identity of every enum member: its serialized name when the applied framework converter writes strings, or its numeric value. The name is produced by the effective converter, so a member-level converter declaration takes precedence over the contract options, and two contracts whose wire is identical record identical identities | `R08.enum.string-tokens.wire-identity`, `R08.enum.numeric.wire-identity`, `R08.enum.naming-policy.document`, `R08.enum.member-rename.document`, `R08.enum.member-level.wire-identity`. |
-| D06 | Every metadata-resolution path the classifier walks is inventoried, documented, covered by an executed check, and bounded; every classification rule, node kind, and allowlist of the deny-by-default classifier is bound to this document; and a source, node kind, or rule added without coverage fails the gate | `D06.discovery-paths.inventory`, `D06.classification-rules.documented`, `D06.classification-rules.observed`, `D06.allowlist.documented`, `D06.allowlist.verified`, together with the per-path checks listed in the path inventory. |
+| D06 | Every metadata-resolution path the classifier walks is inventoried, documented, covered by an executed check, and bounded; every classification rule, node kind, and allowlist of the deny-by-default classifier - including the serializer option allowlist - is bound to this document and to the values the executed checks were accepted under; and a source, node kind, or rule added without coverage fails the gate | `D06.discovery-paths.inventory`, `D06.classification-rules.documented`, `D06.classification-rules.observed`, `D06.allowlist.documented`, `D06.allowlist.verified`, `D06.allowlist.option-values`, together with the per-path checks listed in the path inventory. |
 | D07 | A registered derived type's member content, element, key, and value types, and nested registrations are part of the canonical document | `R10.polymorphism.derived-member.document`, `R14.converter.opaque-polymorphic-derived-member`, `R14.converter.derived-shape.document`. |
+| D08 | The canonical document records the serializer option values the contract was recorded under, so a change of an accepted option value is a document difference instead of a pair of byte-identical documents | `D08.canonical-document.options-recorded`. |
 
 ## Documented limitations
 
@@ -354,8 +417,12 @@ byte-identical.
    cannot be resolved, is reported as unsupported rather than inspected further.
 4. **Only measured behavior is claimed.** A serializer feature that is not listed in this document has no
    classification and must be reported as unsupported or unclassified until it is measured. The scalar
-   allowlist is the set of framework scalar types the matrix has verified; a framework scalar type outside it
-   is reported unsupported until a rule and a check are added for it.
+   allowlist is the set of framework scalar types the matrix has verified, and the option-value allowlist is
+   the set of `JsonSerializerOptions` values the committed checks are measured under; a framework scalar type,
+   or an option value, outside its allowlist is reported unsupported until a rule and a check are added for
+   it. The option allowlist is per option family, not per combination: a contract that combines two accepted
+   values is accepted, even when no committed check measures that exact combination, because each individual
+   value is proven.
 5. **A string enum member's wire name is read from the serializer.** The name is produced by the framework
    string-enum converter that the member's effective declared metadata applies - the converter declared on
    the member first, then the converter declared on the enum type or registered on the options - which is how

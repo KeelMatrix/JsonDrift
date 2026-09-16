@@ -23,8 +23,10 @@ its contract from that effective metadata - `JsonTypeInfo` from a source-generat
 every supported change under each policy, and names the executed proof for each one. It also states the
 explicit unsupported handling: an unrecognized converter or metadata source is reported as unsupported and
 never as compatible. Classification is deny by default: a contract is supported only when a single recursive
-traversal recorded the shape evidence behind it and its converter and resolver metadata matches an explicit
-framework allowlist, so a metadata path the walk missed is reported as unsupported instead of as compatible.
+traversal recorded the shape evidence behind it and its converter, resolver, and serializer-option metadata
+matches explicit allowlists, so a metadata path the walk missed, a converter it does not recognize, and a
+serializer option value the committed checks were not measured under are all reported as unsupported instead
+of as compatible, and the canonical document records the option values the contract was recorded under.
 
 [docs/initial-release-scope.md](docs/initial-release-scope.md) records the recommended first-release scope and
 the measured evidence behind it.

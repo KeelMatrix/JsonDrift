@@ -23,6 +23,7 @@ internal static class MatrixReport
         checks.AddRange(GenerationRules.Run());
         checks.AddRange(UnsupportedRules.Run());
         checks.AddRange(AdversarialRules.Run());
+        checks.AddRange(OptionsRules.Run());
         checks.AddRange(HarnessRules.Run());
         checks.AddRange(DeterminismRules.Run());
         checks.AddRange(MatrixSummary.Run(checks));

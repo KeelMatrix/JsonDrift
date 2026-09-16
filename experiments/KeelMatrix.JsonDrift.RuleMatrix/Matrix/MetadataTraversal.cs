@@ -101,6 +101,7 @@ internal static class MetadataTraversal
                     Path = path,
                     Kind = RecordedNodeKind.Reference,
                     FrameworkKind = alreadyRecorded.FrameworkKind,
+                    Options = alreadyRecorded.Options,
                 };
 
                 reference.Reference = alreadyRecorded;
@@ -132,6 +133,7 @@ internal static class MetadataTraversal
             recorded.Add(type, node);
 
             node.Resolver = RecordResolver(path, info.Options);
+            RecordOptions(node, info.Options);
             RecordConverterFacts(node, type, info.Options, path);
 
             node.Kind = info.Kind switch
@@ -165,6 +167,7 @@ internal static class MetadataTraversal
             };
 
             node.Resolver = RecordResolver(path, known?.Options ?? options);
+            RecordOptions(node, known?.Options ?? options);
 
             recorded.TryAdd(type, node);
 
@@ -372,6 +375,17 @@ internal static class MetadataTraversal
         }
 
         /// <summary>
+        /// Records the wire-affecting option values the contract is recorded under, through the
+        /// <see cref="MetadataSourceKind.OptionsSettings"/> discovery source, so the classification and the
+        /// canonical document read the same option facts the traversal recorded.
+        /// </summary>
+        private static void RecordOptions(RecordedNode node, JsonSerializerOptions options)
+        {
+            TraversalInventory.Ledger.RecordSource(MetadataSourceKind.OptionsSettings);
+            node.Options = SerializerOptionFacts.Read(options);
+        }
+
+        /// <summary>
         /// Records the converters declared on the visited type and registered on the options. A converter is
         /// recorded with its declared type identity, so the classifier decides provenance by assembly
         /// identity rather than by namespace.
@@ -390,6 +404,16 @@ internal static class MetadataTraversal
                 static converter => converter.GetType().FullName ?? converter.GetType().Name,
                 StringComparer.Ordinal))
             {
+                // An allowlisted framework converter is recorded only for the node type it applies to:
+                // registering a string-enum converter says nothing about an object contract, while a
+                // converter the allowlist does not name or a factory that can claim any type is recorded for
+                // every visited node so it cannot be hidden behind a node it does not apply to yet.
+                if (ContractAllowlists.IsAllowlistedConverterType(converter.GetType()) &&
+                    !ContractAllowlists.IsAllowlistedConverterFor(converter.GetType(), type))
+                {
+                    continue;
+                }
+
                 TraversalInventory.Ledger.RecordSource(MetadataSourceKind.OptionsConverters);
                 node.ConverterFacts.Add(new RecordedConverterFact(MetadataSourceKind.OptionsConverters, path, type, converter.GetType()));
             }

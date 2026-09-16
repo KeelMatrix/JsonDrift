@@ -15,6 +15,7 @@ internal sealed class TraversalInventory
     private readonly HashSet<MetadataSourceKind> sources = new();
     private readonly HashSet<RecordedNodeKind> nodeKinds = new();
     private readonly HashSet<string> rules = new(StringComparer.Ordinal);
+    private readonly HashSet<RecordedOptionValue> acceptedOptionValues = new();
 
     public void RecordSource(MetadataSourceKind source)
     {
@@ -37,6 +38,21 @@ internal sealed class TraversalInventory
         lock (gate)
         {
             rules.Add(ruleId);
+        }
+    }
+
+    /// <summary>
+    /// Records one serializer option value the classifier accepted, so the option allowlist can be compared
+    /// with the values the executed checks were actually measured under. A value that is reported through
+    /// <c>unsupported.option-unlisted</c> is never accepted and therefore never recorded here.
+    /// </summary>
+    public void RecordAcceptedOptionValue(RecordedOptionValue value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        lock (gate)
+        {
+            acceptedOptionValues.Add(value);
         }
     }
 
@@ -64,6 +80,18 @@ internal sealed class TraversalInventory
         lock (gate)
         {
             return rules.OrderBy(static rule => rule, StringComparer.Ordinal).ToArray();
+        }
+    }
+
+    /// <summary>The serializer option values the executed checks were accepted under.</summary>
+    public IReadOnlyList<RecordedOptionValue> AcceptedOptionValues()
+    {
+        lock (gate)
+        {
+            return acceptedOptionValues
+                .OrderBy(static value => value.Kind)
+                .ThenBy(static value => value.Value, StringComparer.Ordinal)
+                .ToArray();
         }
     }
 }

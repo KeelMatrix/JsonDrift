@@ -15,7 +15,7 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 internal static class ContractCanonicalizer
 {
     /// <summary>The canonical document format version.</summary>
-    public const int ContractVersion = 2;
+    public const int ContractVersion = 3;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
@@ -33,6 +33,7 @@ internal static class ContractCanonicalizer
         var document = new JsonObject
         {
             ["contractVersion"] = ContractVersion,
+            ["options"] = DescribeOptions(root.Options),
             ["root"] = DescribeNode(root, includeMembers: true),
         };
 
@@ -43,6 +44,24 @@ internal static class ContractCanonicalizer
         string json = document.ToJsonString(WriterOptions);
         string normalized = json.Replace("\r\n", "\n", StringComparison.Ordinal);
         return normalized.EndsWith('\n') ? normalized : string.Concat(normalized, "\n");
+    }
+
+    /// <summary>
+    /// Describes the wire-affecting serializer option values the contract was recorded under, in the fixed
+    /// order of the option families. The values are part of the document, so a contract that keeps its shape
+    /// and changes an option value the allowlist accepts is a document difference instead of a pair of
+    /// byte-identical documents.
+    /// </summary>
+    private static JsonObject DescribeOptions(RecordedOptionSet options)
+    {
+        var described = new JsonObject();
+
+        foreach (RecordedOptionValue value in options.Values)
+        {
+            described[value.Id] = value.Value;
+        }
+
+        return described;
     }
 
     /// <summary>

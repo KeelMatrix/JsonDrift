@@ -26,7 +26,7 @@ Evidence:
   member into a numeric representation (`R08.enum.member-insertion`), and registering an additional derived
   type (`R10.polymorphism.derived-type-added`). Every other measured change is incompatible under at least one
   policy. The unsupported set is likewise read from the matrix output
-  (`D04.policy.unsupported-count` reports the 47 checks that record unsupported metadata).
+  (`D04.policy.unsupported-count` reports the 62 checks that record unsupported metadata).
 * Two measured changes are deliberately not classified in either direction. A dictionary key-type change is
   reported unsupported (`R07.shape.dictionary-key-type`) because compatibility depends on the earlier key
   value space, which the contract model does not record: the key `"1"` is read back unchanged by an
@@ -38,20 +38,24 @@ Evidence:
   which a rename or removal is accepted in the reverse direction while the value is silently dropped. The
   parse-only variant has its own rule-by-rule proof obligation and is not part of the measured matrix.
 * `ReaderBackward` is the only policy whose semantics are proven for every shipped rule in both a change case
-  and an unchanged-contract control case: the matrix runs 207 executed checks and all of them agree with the
+  and an unchanged-contract control case: the matrix runs 225 executed checks and all of them agree with the
   recorded classification. The count is asserted by `D04.matrix.check-count`, so adding, removing, or
   reclassifying a check fails the matrix until this document is updated with it.
 * The invariant that unsupported or opaque metadata never maps to compatible is enforced by construction
   rather than by a list of known cases. Classification is deny by default: a contract is only supported when
-  a single recursive traversal recorded its shape evidence and its converter and resolver metadata matches an
-  explicit framework allowlist, and everything else is reported unsupported. Every metadata-resolution path
-  the walk visits is inventoried in the path inventory of
+  a single recursive traversal recorded its shape evidence and its converter, resolver, and serializer-option
+  metadata matches explicit allowlists, and everything else is reported unsupported. Every
+  metadata-resolution path the walk visits is inventoried in the path inventory of
   [docs/compatibility-rules.md](compatibility-rules.md), covered by an executed check, and bounded by a shared
   visited-type set plus a traversal budget; the matrix compares the sources the traversal actually visited
   with the inventory and the checks (`D06.discovery-paths.inventory`), binds the classification rules and the
   allowlists to the documented lists (`D06.classification-rules.documented`,
-  `D06.allowlist.documented`), and fails when a discovery source, a recorded node kind, or a rule is added
-  without coverage. The canonical document carries an aggregate support state as well as a root flag
+  `D06.allowlist.documented`), binds the serializer option allowlist to the option profiles the committed
+  checks are measured under and to the values the executed checks were accepted under
+  (`D06.allowlist.option-values`), and fails when a discovery source, a recorded node kind, a rule, or an
+  option value is added without coverage. The canonical document records the option values the contract was
+  recorded under, so a change of an accepted option value is a document difference
+  (`D08.canonical-document.options-recorded`), and it carries an aggregate support state as well as a root flag
   (`R15.canonical-document.aggregate-support-state`), so a report layer never infers safety from a root flag
   while nested metadata is unsupported. An executable adversarial set (`A01.adversarial.*`) keeps trying to
   hide opaque metadata behind a path no rule names, and every case has to fail closed.
@@ -72,7 +76,8 @@ Evidence:
 * The metadata surface the rules depend on is available to `net8.0` through that package: `JsonTypeInfo.Kind`
   and `ElementType`, `JsonPropertyInfo.IsRequired`, `IsGetNullable`, `IsSetNullable`, and `IsExtensionData`,
   `JsonTypeInfo.PolymorphismOptions`, `JsonSerializerOptions.RespectNullableAnnotations`, and
-  `JsonSerializerOptions.RespectRequiredConstructorParameters`.
+  `JsonSerializerOptions.RespectRequiredConstructorParameters`. Every serializer setting the option allowlist
+  records, `PreferredObjectCreationHandling` included, is read from the same package.
 * Two rules are sensitive to reader options that exist in that modern package surface
   (`R05.nullability.reference-nullable-removed.enforced`,
   `R12.binding.constructor-parameter-added.enforced`). A target that cannot offer that surface would change

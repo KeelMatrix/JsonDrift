@@ -47,6 +47,64 @@ internal static class InventoryRules
         {
             yield return check;
         }
+
+        yield return OptionAllowlistCheck(lines);
+    }
+
+    /// <summary>
+    /// The serializer option allowlist is compared with the documented list and with the option values the
+    /// executed checks were actually accepted under. The comparison runs in both directions: a value the
+    /// allowlist names but no executed check was accepted under fails, so the allowlist cannot claim more than
+    /// the committed checks prove, and a value an executed check was accepted under that the allowlist does not
+    /// name fails as well.
+    /// </summary>
+    private static CheckOutcome OptionAllowlistCheck(string[] lines)
+    {
+        string[] documented = DocumentationTables.ReadAllowlist(lines, AllowlistKind.OptionValues)?.ToArray()
+            ?? Array.Empty<string>();
+        string[] allowlisted = ContractAllowlists.OptionValueNames.ToArray();
+        string[] accepted = TraversalInventory.Ledger.AcceptedOptionValues()
+            .Select(static value => value.Display)
+            .ToArray();
+
+        string[] codeNotDocumented = allowlisted
+            .Where(name => !documented.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] documentedNotInCode = documented
+            .Where(name => !allowlisted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] allowlistedButNotAccepted = allowlisted
+            .Where(name => !accepted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] acceptedButNotAllowlisted = accepted
+            .Where(name => !allowlisted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] familiesWithoutAcceptedValue = SerializerOptionFacts.All
+            .Where(kind => !accepted.Any(name =>
+                name.StartsWith($"{SerializerOptionFacts.Id(kind)}=", StringComparison.Ordinal)))
+            .Select(SerializerOptionFacts.Id)
+            .ToArray();
+
+        bool passed =
+            codeNotDocumented.Length == 0 &&
+            documentedNotInCode.Length == 0 &&
+            allowlistedButNotAccepted.Length == 0 &&
+            acceptedButNotAllowlisted.Length == 0 &&
+            familiesWithoutAcceptedValue.Length == 0;
+
+        return Check.Assert(
+            "D06.allowlist.option-values",
+            "Deny-by-default allowlist",
+            "the serializer option allowlist is compared with the documented list and with the option values the executed checks were accepted under",
+            "code=documented=accepted, families=recorded",
+            passed
+                ? "code=documented=accepted"
+                : $"code={allowlisted.Length}, documented={documented.Length}, accepted={accepted.Length}",
+            $"codeNotDocumented=[{string.Join(", ", codeNotDocumented)}]; documentedNotInCode=[{string.Join(", ", documentedNotInCode)}]; " +
+            $"allowlistedButNotAccepted=[{string.Join(", ", allowlistedButNotAccepted)}]; " +
+            $"acceptedButNotAllowlisted=[{string.Join(", ", acceptedButNotAllowlisted)}]; " +
+            $"familiesWithoutAcceptedValue=[{string.Join(", ", familiesWithoutAcceptedValue)}]",
+            passed);
     }
 
     /// <summary>

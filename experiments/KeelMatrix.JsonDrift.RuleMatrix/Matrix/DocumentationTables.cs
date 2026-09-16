@@ -15,6 +15,7 @@ internal static class DocumentationTables
     private const string ScalarAllowlistPrefix = "Allowlisted framework scalar types:";
     private const string ConverterAllowlistPrefix = "Allowlisted framework converters:";
     private const string ResolverAllowlistPrefix = "Allowlisted metadata resolvers:";
+    private const string OptionValueAllowlistPrefix = "Allowlisted serializer option values:";
 
     /// <summary>Locates the rule document from the running output directory.</summary>
     public static string? Locate()
@@ -152,6 +153,7 @@ internal static class DocumentationTables
         AllowlistKind.ScalarTypes => ScalarAllowlistPrefix,
         AllowlistKind.Converters => ConverterAllowlistPrefix,
         AllowlistKind.Resolvers => ResolverAllowlistPrefix,
+        AllowlistKind.OptionValues => OptionValueAllowlistPrefix,
     };
 }
 
@@ -161,4 +163,5 @@ internal enum AllowlistKind
     ScalarTypes,
     Converters,
     Resolvers,
+    OptionValues,
 }

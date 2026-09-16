@@ -31,6 +31,7 @@ internal static class RuleIds
     public const string UnsupportedShapeEvidenceMissing = "unsupported.shape-evidence-missing";
     public const string UnsupportedScalarUnlisted = "unsupported.scalar-unlisted";
     public const string UnsupportedEnumWireUnresolved = "unsupported.enum-wire-unresolved";
+    public const string UnsupportedOptionUnlisted = "unsupported.option-unlisted";
 }
 
 /// <summary>One documented classification rule.</summary>
@@ -122,6 +123,10 @@ internal static class RuleCatalog
             RuleIds.UnsupportedEnumWireUnresolved,
             false,
             "the wire name of an enum member could not be produced from the recorded framework converter"),
+        new(
+            RuleIds.UnsupportedOptionUnlisted,
+            false,
+            "a recorded serializer option value is not on the option allowlist the committed checks are measured under"),
     };
 
     public static bool Contains(string ruleId) =>
@@ -161,6 +166,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedShapeEvidenceMissing,
             RuleIds.UnsupportedMetadataUnavailable,
             RuleIds.UnsupportedTraversalBudget,
+            RuleIds.UnsupportedOptionUnlisted,
         },
         RecordedNodeKind.Enumerable => new[]
         {
@@ -169,6 +175,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedShapeEvidenceMissing,
             RuleIds.UnsupportedMetadataUnavailable,
             RuleIds.UnsupportedTraversalBudget,
+            RuleIds.UnsupportedOptionUnlisted,
         },
         RecordedNodeKind.Dictionary => new[]
         {
@@ -177,6 +184,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedShapeEvidenceMissing,
             RuleIds.UnsupportedMetadataUnavailable,
             RuleIds.UnsupportedTraversalBudget,
+            RuleIds.UnsupportedOptionUnlisted,
         },
         RecordedNodeKind.Scalar => new[]
         {
@@ -186,6 +194,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedScalarUnlisted,
             RuleIds.UnsupportedEnumWireUnresolved,
             RuleIds.UnsupportedShapeEvidenceMissing,
+            RuleIds.UnsupportedOptionUnlisted,
         },
         RecordedNodeKind.Reference => new[]
         {
@@ -286,6 +295,19 @@ internal static class ContractAllowlists
     public static IReadOnlyList<string> ResolverNames { get; } =
         Resolvers.Select(TypeShapes.TypeName).ToArray();
 
+    /// <summary>
+    /// The recorded serializer option values a supported verdict may rest on, derived from the option
+    /// profiles the committed checks are measured under (<see cref="JsonContractOptions.MeasuredOptionValues"/>)
+    /// rather than written out a second time. Every other value of every family is reported through
+    /// <c>unsupported.option-unlisted</c>.
+    /// </summary>
+    public static IReadOnlyList<RecordedOptionValue> OptionValues { get; } =
+        JsonContractOptions.MeasuredOptionValues;
+
+    /// <summary>The recorded option-value names the documentation check compares with the published list.</summary>
+    public static IReadOnlyList<string> OptionValueNames { get; } =
+        OptionValues.Select(static value => value.Display).ToArray();
+
     /// <summary>Whether the type ships in the framework <c>System.Text.Json</c> assembly.</summary>
     public static bool IsFrameworkAssembly(Type type) => type.Assembly == FrameworkAssemblyAnchor.Assembly;
 
@@ -295,6 +317,19 @@ internal static class ContractAllowlists
         ArgumentNullException.ThrowIfNull(type);
 
         return ScalarTypes.Contains(Nullable.GetUnderlyingType(type) ?? type);
+    }
+
+    /// <summary>
+    /// Whether a recorded serializer option value is one the committed checks are measured under. The value
+    /// is compared as recorded, so a family whose value the allowlist does not name can never produce a
+    /// supported verdict.
+    /// </summary>
+    public static bool IsAllowlistedOptionValue(ContractOptionKind kind, string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        return OptionValues.Any(entry =>
+            entry.Kind == kind && string.Equals(entry.Value, value, StringComparison.Ordinal));
     }
 
     /// <summary>

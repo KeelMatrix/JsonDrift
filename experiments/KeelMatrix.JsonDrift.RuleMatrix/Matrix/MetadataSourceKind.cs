@@ -44,6 +44,9 @@ internal enum MetadataSourceKind
 
     /// <summary>The types registered through <c>JsonPolymorphismOptions.DerivedTypes</c>.</summary>
     PolymorphismDerivedTypes,
+
+    /// <summary>The wire-affecting setting values of the <c>JsonSerializerOptions</c> the contract is recorded under.</summary>
+    OptionsSettings,
 }
 
 /// <summary>
@@ -71,6 +74,7 @@ internal static class MetadataSourceRules
         MetadataSourceKind.DictionaryKeyTypes => "dictionary-key-types",
         MetadataSourceKind.DictionaryValueTypes => "dictionary-value-types",
         MetadataSourceKind.PolymorphismDerivedTypes => "polymorphism-derived-types",
+        MetadataSourceKind.OptionsSettings => "options-settings",
     };
 
     /// <summary>What the source discovers, in the developer-facing wording of the path inventory.</summary>
@@ -88,6 +92,7 @@ internal static class MetadataSourceRules
         MetadataSourceKind.DictionaryKeyTypes => "the key type of a visited dictionary contract",
         MetadataSourceKind.DictionaryValueTypes => "the value type of a visited dictionary contract",
         MetadataSourceKind.PolymorphismDerivedTypes => "the types registered in JsonPolymorphismOptions.DerivedTypes",
+        MetadataSourceKind.OptionsSettings => "the wire-affecting setting values of JsonSerializerOptions",
     };
 
     /// <summary>
@@ -164,6 +169,10 @@ internal static class MetadataSourceRules
         {
             RuleIds.SupportedObject,
             RuleIds.UnsupportedMetadataUnavailable,
+        },
+        MetadataSourceKind.OptionsSettings => new[]
+        {
+            RuleIds.UnsupportedOptionUnlisted,
         },
     };
 }

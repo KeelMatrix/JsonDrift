@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
@@ -15,8 +14,7 @@ internal static class RequirednessRules
     {
         var results = new List<CheckOutcome>();
         JsonSerializerOptions reflection = JsonContractOptions.Reflection();
-        JsonSerializerOptions omitsNulls = JsonContractOptions.Reflection();
-        omitsNulls.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        JsonSerializerOptions omitsNulls = JsonContractOptions.OmitsNullMembers();
 
         JsonTypeInfo optional = reflection.GetTypeInfo(typeof(ShipmentV1));
         JsonTypeInfo required = reflection.GetTypeInfo(typeof(ShipmentRequired));

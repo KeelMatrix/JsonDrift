@@ -118,6 +118,9 @@ internal sealed class RecordedNode
     /// <summary>The resolver that produced this contract.</summary>
     public RecordedResolverFact? Resolver { get; set; }
 
+    /// <summary>The wire-affecting serializer option values this contract was recorded under.</summary>
+    public RecordedOptionSet Options { get; set; } = RecordedOptionSet.None;
+
     /// <summary>The converters declared or registered for this contract.</summary>
     public List<RecordedConverterFact> ConverterFacts { get; } = new();
 

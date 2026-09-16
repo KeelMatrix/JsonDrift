@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
@@ -15,8 +14,7 @@ internal static class IgnoreRules
     {
         var results = new List<CheckOutcome>();
         JsonSerializerOptions reflection = JsonContractOptions.Reflection();
-        JsonSerializerOptions omitsNulls = JsonContractOptions.Reflection();
-        omitsNulls.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        JsonSerializerOptions omitsNulls = JsonContractOptions.OmitsNullMembers();
 
         JsonTypeInfo included = reflection.GetTypeInfo(typeof(SessionV1));
         JsonTypeInfo ignored = reflection.GetTypeInfo(typeof(SessionV2Ignored));
