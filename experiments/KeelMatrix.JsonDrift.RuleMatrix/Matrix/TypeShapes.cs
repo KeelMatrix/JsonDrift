@@ -10,24 +10,6 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 /// </summary>
 internal static class TypeShapes
 {
-    public static bool IsScalar(Type type) =>
-        type.IsPrimitive ||
-        type.IsEnum ||
-        type.IsPointer ||
-        type == typeof(string) ||
-        type == typeof(decimal) ||
-        type == typeof(Guid) ||
-        type == typeof(DateTime) ||
-        type == typeof(DateTimeOffset) ||
-        type == typeof(DateOnly) ||
-        type == typeof(TimeOnly) ||
-        type == typeof(TimeSpan) ||
-        type == typeof(Uri) ||
-        type == typeof(object) ||
-        type == typeof(JsonElement) ||
-        type == typeof(JsonDocument) ||
-        type == typeof(JsonNode);
-
     public static bool IsEnumerable(Type type) =>
         type != typeof(string) &&
         (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) || type.IsArray);
@@ -125,5 +107,66 @@ internal static class TypeShapes
         }
 
         return type.FullName ?? type.Name;
+    }
+
+    /// <summary>
+    /// The JSON token kind a framework converter writes for a declared type. The mapping covers the scalar
+    /// allowlist, enumerables, dictionaries, and object contracts; a type outside it is recorded as an object
+    /// token, which is only reachable for contracts that the allowlist already reports unsupported.
+    /// </summary>
+    public static string TokenKind(Type declaredType)
+    {
+        ArgumentNullException.ThrowIfNull(declaredType);
+
+        Type type = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
+
+        if (type == typeof(bool))
+        {
+            return "boolean";
+        }
+
+        if (type == typeof(byte[]) ||
+            type == typeof(Memory<byte>) ||
+            type == typeof(ReadOnlyMemory<byte>) ||
+            type == typeof(string) ||
+            type == typeof(char) ||
+            type == typeof(Guid) ||
+            type == typeof(DateTime) ||
+            type == typeof(DateTimeOffset) ||
+            type == typeof(DateOnly) ||
+            type == typeof(TimeOnly) ||
+            type == typeof(TimeSpan) ||
+            type == typeof(Uri) ||
+            type == typeof(Version))
+        {
+            return "string";
+        }
+
+        if (type == typeof(object) || type == typeof(JsonElement) || type == typeof(JsonNode) || type == typeof(JsonDocument))
+        {
+            return "any";
+        }
+
+        if (TryGetDictionaryTypes(type, out _, out _))
+        {
+            return "object";
+        }
+
+        if (IsEnumerable(type))
+        {
+            return "array";
+        }
+
+        if (type.IsPrimitive ||
+            type.IsEnum ||
+            type == typeof(decimal) ||
+            type == typeof(Int128) ||
+            type == typeof(UInt128) ||
+            type == typeof(Half))
+        {
+            return "number";
+        }
+
+        return "object";
     }
 }

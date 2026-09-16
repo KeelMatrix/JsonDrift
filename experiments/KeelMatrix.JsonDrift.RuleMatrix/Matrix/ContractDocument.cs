@@ -50,4 +50,51 @@ internal static class ContractDocument
 
     public static bool MemberHasShape(string document, string memberName) =>
         Member(document, memberName)?.ContainsKey("shape") == true;
+
+    /// <summary>The classification rule the document recorded for one member.</summary>
+    public static string? MemberRule(string document, string memberName) =>
+        Member(document, memberName)?["rule"]?.GetValue<string>();
+
+    /// <summary>The JSON token kind the document recorded for one member.</summary>
+    public static string? MemberTokenKind(string document, string memberName) =>
+        Member(document, memberName)?["tokenKind"]?.GetValue<string>();
+
+    /// <summary>The recorded wire identity of an enum member, or null when the member records none.</summary>
+    public static JsonObject? MemberEnumWire(string document, string memberName) =>
+        Member(document, memberName)?["enumWire"] as JsonObject;
+
+    /// <summary>The recorded wire identity of a member of a registered derived type.</summary>
+    public static JsonObject? DerivedTypeMemberEnumWire(string document, string memberName)
+    {
+        JsonArray? derivedTypes = Root(document)["polymorphism"]?["derivedTypes"]?.AsArray();
+
+        if (derivedTypes is null)
+        {
+            return null;
+        }
+
+        foreach (JsonNode? derived in derivedTypes)
+        {
+            JsonArray? members = derived?["members"]?.AsArray();
+
+            if (members is null)
+            {
+                continue;
+            }
+
+            foreach (JsonNode? member in members)
+            {
+                if (string.Equals(member?["name"]?.GetValue<string>(), memberName, StringComparison.Ordinal))
+                {
+                    return member?["enumWire"] as JsonObject;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The recorded token of one enum member inside a recorded wire identity, without quotes.</summary>
+    public static string? EnumWireToken(JsonObject? wire, string enumMemberName) =>
+        wire?[enumMemberName]?.ToJsonString().Trim('"');
 }

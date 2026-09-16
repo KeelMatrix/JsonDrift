@@ -29,6 +29,11 @@ dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no
   contained may be lost. Silent data loss is a break.
 - Unsupported or unrecognized converter metadata never maps to compatible, even when a round trip happens to
   be lossless.
+- Classification is deny by default: a contract is supported only when one recursive traversal recorded its
+  shape evidence and its converter and resolver metadata matches the allowlists in
+  `docs/compatibility-rules.md`. There is one traversal and one recorded model; the canonical document and the
+  classification both read it, and the coverage gate derives the implemented discovery sources from the walk
+  rather than from a hand-maintained list.
 - Canonical contract documents are sorted by member name, LF-terminated, UTF-8 without a byte order mark, and
   free of timestamps, host paths, and process-specific values.
 - The experiment project is not packable and must stay that way until the product scope is implemented.

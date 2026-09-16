@@ -140,19 +140,29 @@ internal static class HarnessRules
     private static void AddComparisonChecks(List<CheckOutcome> results)
     {
         IReadOnlyList<string> sameValue = JsonSubsetComparer.Compare("{\"a\":5}", "{\"a\":5.0}");
+        IReadOnlyList<string> sameScale = JsonSubsetComparer.Compare("{\"a\":1e2}", "{\"a\":100}");
         IReadOnlyList<string> changedValue = JsonSubsetComparer.Compare("{\"a\":5}", "{\"a\":6}");
         IReadOnlyList<string> changedToken = JsonSubsetComparer.Compare("{\"a\":5}", "{\"a\":\"5\"}");
         IReadOnlyList<string> largeScale = JsonSubsetComparer.Compare("{\"a\":1E+400}", "{\"a\":1E+401}");
         IReadOnlyList<string> smallScale = JsonSubsetComparer.Compare("{\"a\":1E-400}", "{\"a\":0}");
+        IReadOnlyList<string> longInteger = JsonSubsetComparer.Compare(
+            "{\"a\":10000000000000000000000000000001}",
+            "{\"a\":10000000000000000000000000000000}");
+        IReadOnlyList<string> decimalFraction = JsonSubsetComparer.Compare(
+            "{\"a\":123456789012345678901234567890.1}",
+            "{\"a\":123456789012345678901234567890.2}");
+        IReadOnlyList<string> roundedFraction = JsonSubsetComparer.Compare(
+            "{\"a\":0.100000000000000000000000000001}",
+            "{\"a\":0.1}");
 
         results.Add(Check.Assert(
             "C01.document-comparison.numbers-by-value",
             "Document comparison",
             "a number carries the same value in a different serialized form",
             "differences=0",
-            $"differences={sameValue.Count}",
-            $"5 versus 5.0: [{string.Join(", ", sameValue)}]",
-            sameValue.Count == 0));
+            $"5-5.0={sameValue.Count}; 1e2-100={sameScale.Count}",
+            $"5 versus 5.0: [{string.Join(", ", sameValue)}]; 1e2 versus 100: [{string.Join(", ", sameScale)}]",
+            sameValue.Count == 0 && sameScale.Count == 0));
 
         results.Add(Check.Assert(
             "C01.document-comparison.number-and-token-changes",
@@ -167,10 +177,20 @@ internal static class HarnessRules
             "C01.document-comparison.non-finite-numbers",
             "Document comparison",
             "a number is outside the range both decimal and finite double parsing can represent",
-            "differences=1 for each",
+            "differences=1 for each: the exact comparison does not round the values",
             $"aboveDoubleRange={largeScale.Count}; belowDecimalRange={smallScale.Count}",
             $"1E+400 versus 1E+401: [{string.Join(", ", largeScale)}]; 1E-400 versus 0: [{string.Join(", ", smallScale)}]",
             largeScale.Count == 1 && smallScale.Count == 1));
 
+        results.Add(Check.Assert(
+            "C01.document-comparison.exact-value",
+            "Document comparison",
+            "numbers whose finite parses round to the same value are written with different digits",
+            "differences=1 for each",
+            $"longInteger={longInteger.Count}; decimalFraction={decimalFraction.Count}; roundedFraction={roundedFraction.Count}",
+            $"10000000000000000000000000000001 versus ...0000: [{string.Join(", ", longInteger)}]; " +
+            $"123456789012345678901234567890.1 versus .2: [{string.Join(", ", decimalFraction)}]; " +
+            $"0.100000000000000000000000000001 versus 0.1: [{string.Join(", ", roundedFraction)}]",
+            longInteger.Count == 1 && decimalFraction.Count == 1 && roundedFraction.Count == 1));
     }
 }

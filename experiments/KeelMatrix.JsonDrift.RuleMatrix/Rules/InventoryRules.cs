@@ -1,29 +1,30 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 
 namespace KeelMatrix.JsonDrift.RuleMatrix.Rules;
 
 /// <summary>
-/// The path inventory gate: every metadata-resolution path the classifier walks must be named in the
-/// registry, documented in the inventory, and covered by an executed check that reports opaque metadata as
-/// unsupported. A discovery source that is added without coverage fails here instead of passing silently.
+/// The coverage gate. The implemented discovery sources are the sources the traversal recorded at runtime,
+/// not a hand-maintained list, so a metadata path the walk never visits is visible as a missing entry. The
+/// same gate binds the classification rules, the recorded node kinds, and the allowlists of the
+/// deny-by-default classifier to the tables and lists published in <c>docs/compatibility-rules.md</c>.
 /// </summary>
 internal static class InventoryRules
 {
-    /// <summary>The path-inside-the-document at which the inventory table begins.</summary>
-    public const string InventoryHeading = "### Metadata discovery path inventory";
-
     public static IEnumerable<CheckOutcome> Run(IReadOnlyList<CheckOutcome> checks)
     {
         ArgumentNullException.ThrowIfNull(checks);
 
-        string? documentPath = LocateDocument();
+        string[]? lines = DocumentationTables.ReadLines();
 
-        if (documentPath is null)
+        if (lines is null)
         {
             yield return Check.Assert(
                 "D06.discovery-paths.inventory",
                 "Metadata discovery inventory",
-                "the path inventory is compared with the implemented discovery sources and the executed checks",
+                "the path inventory is compared with the discovery sources the traversal recorded",
                 "inventory=readable",
                 "inventory=missing",
                 $"searched from {AppContext.BaseDirectory} for docs/compatibility-rules.md",
@@ -32,50 +33,64 @@ internal static class InventoryRules
             yield break;
         }
 
-        string[] lines = File.ReadAllLines(documentPath);
-        int headingIndex = Array.FindIndex(lines, line =>
-            string.Equals(line.Trim(), InventoryHeading, StringComparison.Ordinal));
+        foreach (CheckOutcome check in DiscoveryPathChecks(checks, lines))
+        {
+            yield return check;
+        }
 
+        foreach (CheckOutcome check in ClassificationRuleChecks(lines))
+        {
+            yield return check;
+        }
+
+        foreach (CheckOutcome check in AllowlistChecks(lines))
+        {
+            yield return check;
+        }
+    }
+
+    /// <summary>
+    /// The implemented discovery sources are read from the traversal inventory and compared with the path
+    /// inventory table and the executed per-path checks. Every declared source has to be visited by an
+    /// executed contract, so a source that is added without coverage fails here.
+    /// </summary>
+    private static IEnumerable<CheckOutcome> DiscoveryPathChecks(IReadOnlyList<CheckOutcome> checks, string[] lines)
+    {
         var documented = new List<KeyValuePair<string, string>>();
 
-        if (headingIndex >= 0)
+        foreach (string[] cells in DocumentationTables.ReadTable(lines, DocumentationTables.InventoryHeading))
         {
-            for (int index = headingIndex + 1; index < lines.Length; index++)
+            if (cells.Length >= 2 &&
+                MetadataDiscoverySources.TryParseInventoryEntry($"|{cells[0]}|{cells[1]}|", out string? source, out string? checkId))
             {
-                if (lines[index].StartsWith("## ", StringComparison.Ordinal))
-                {
-                    break;
-                }
-
-                if (MetadataDiscoverySources.TryParseInventoryEntry(lines[index], out string? source, out string? checkId))
-                {
-                    documented.Add(new KeyValuePair<string, string>(source, checkId));
-                }
+                documented.Add(new KeyValuePair<string, string>(source, checkId));
             }
         }
 
-        var implemented = MetadataDiscoverySources.Implemented
-            .OrderBy(static source => source, StringComparer.Ordinal)
-            .ToArray();
-        var observed = MetadataDiscoverySources.ObservedFromChecks(checks);
+        string[] implemented = MetadataDiscoverySources.Implemented.ToArray();
+        string[] declared = MetadataSourceRules.All.Select(MetadataSourceRules.Id).OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        IReadOnlySet<string> observed = MetadataDiscoverySources.ObservedFromChecks(checks);
         IReadOnlyList<KeyValuePair<string, string>> bindings = MetadataDiscoverySources.InventoryBindings(checks);
 
-        string[] notObserved = implemented.Where(source => !observed.Contains(source)).ToArray();
-        string[] notInRegistry = observed.Where(source => !implemented.Contains(source, StringComparer.Ordinal)).OrderBy(
-            static source => source,
-            StringComparer.Ordinal).ToArray();
+        string[] notVisited = declared.Where(source => !implemented.Contains(source, StringComparer.Ordinal)).ToArray();
+        string[] notCoveredByAnyCheck = implemented.Where(source => !observed.Contains(source)).ToArray();
+        string[] notInRegistry = observed
+            .Where(source => !declared.Contains(source, StringComparer.Ordinal))
+            .OrderBy(static source => source, StringComparer.Ordinal)
+            .ToArray();
         string[] missingFromInventory = implemented
             .Where(source => !documented.Any(entry => string.Equals(entry.Key, source, StringComparison.Ordinal)))
             .ToArray();
-        string[] undocumentedInInventory = documented
-            .Where(entry => !implemented.Contains(entry.Key, StringComparer.Ordinal))
+        string[] documentedWithoutImplementation = documented
+            .Where(entry => !declared.Contains(entry.Key, StringComparer.Ordinal))
             .Select(static entry => entry.Key)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(static source => source, StringComparer.Ordinal)
             .ToArray();
-        string[] uncoveredChecks = implemented.Where(source => !bindings.Any(binding =>
-            string.Equals(binding.Key, source, StringComparison.Ordinal))).ToArray();
-        string[] inventoryMismatches = inventoryMismatchesFor(bindings, documented, checks);
+        string[] checksWithoutBinding = implemented
+            .Where(source => !bindings.Any(binding => string.Equals(binding.Key, source, StringComparison.Ordinal)))
+            .ToArray();
+        string[] rowMismatches = InventoryMismatches(bindings, documented, checks);
         string[] missingCheckIds = bindings
             .Where(binding => !checks.Any(check => string.Equals(check.Id, binding.Value, StringComparison.Ordinal)))
             .Select(static binding => binding.Value)
@@ -84,30 +99,199 @@ internal static class InventoryRules
             .ToArray();
 
         bool passed =
-            headingIndex >= 0 &&
-            notObserved.Length == 0 &&
+            notVisited.Length == 0 &&
+            notCoveredByAnyCheck.Length == 0 &&
             notInRegistry.Length == 0 &&
             missingFromInventory.Length == 0 &&
-            undocumentedInInventory.Length == 0 &&
-            uncoveredChecks.Length == 0 &&
-            inventoryMismatches.Length == 0 &&
+            documentedWithoutImplementation.Length == 0 &&
+            checksWithoutBinding.Length == 0 &&
+            rowMismatches.Length == 0 &&
             missingCheckIds.Length == 0;
 
         yield return Check.Assert(
             "D06.discovery-paths.inventory",
             "Metadata discovery inventory",
-            "the implemented discovery sources, the path inventory, and the executed per-path checks are compared",
-            "implemented=documented=covered",
-            passed ? "implemented=documented=covered" : $"documented={documented.Count}, covered={bindings.Count}",
-            $"implemented=[{string.Join(", ", implemented)}]; observed=[{string.Join(", ", observed.OrderBy(static source => source, StringComparer.Ordinal))}]; " +
-            $"notCoveredByAnyCheck=[{string.Join(", ", notObserved)}]; " +
-            $"notInRegistry=[{string.Join(", ", notInRegistry)}]; " +
-            $"notDocumented=[{string.Join(", ", missingFromInventory)}]; " +
-            $"documentedWithoutImplementation=[{string.Join(", ", undocumentedInInventory)}]; " +
-            $"checksWithoutBinding=[{string.Join(", ", uncoveredChecks)}]; " +
-            $"rowMismatches=[{string.Join(", ", inventoryMismatches)}]; " +
+            "the discovery sources the traversal recorded, the path inventory, and the executed per-path checks are compared",
+            "visited=documented=covered",
+            passed ? "visited=documented=covered" : $"visited={implemented.Length}, documented={documented.Count}, covered={bindings.Count}",
+            $"visited=[{string.Join(", ", implemented)}]; declaredButNotVisited=[{string.Join(", ", notVisited)}]; " +
+            $"notCoveredByAnyCheck=[{string.Join(", ", notCoveredByAnyCheck)}]; notInRegistry=[{string.Join(", ", notInRegistry)}]; " +
+            $"notDocumented=[{string.Join(", ", missingFromInventory)}]; documentedWithoutDeclaration=[{string.Join(", ", documentedWithoutImplementation)}]; " +
+            $"checksWithoutBinding=[{string.Join(", ", checksWithoutBinding)}]; rowMismatches=[{string.Join(", ", rowMismatches)}]; " +
             $"missingCheckIds=[{string.Join(", ", missingCheckIds)}]",
             passed);
+    }
+
+    /// <summary>
+    /// The classification rule catalogue is compared with the documented rule table, every rule the run
+    /// applied has to come from that catalogue, and every rule reachable through a visited source or a
+    /// recorded node kind has to be documented as well.
+    /// </summary>
+    private static IEnumerable<CheckOutcome> ClassificationRuleChecks(string[] lines)
+    {
+        var documented = new List<ClassificationRule>();
+
+        foreach (string[] cells in DocumentationTables.ReadTable(lines, DocumentationTables.RuleTableHeading))
+        {
+            if (DocumentationTables.TryParseRuleRow(cells, out string ruleId, out bool supported))
+            {
+                documented.Add(new ClassificationRule(ruleId, supported, cells.Length > 2 ? cells[2] : string.Empty));
+            }
+        }
+
+        ClassificationRule[] catalogue = RuleCatalog.Entries.ToArray();
+        string[] undocumented = catalogue
+            .Where(rule => !documented.Any(entry => string.Equals(entry.Id, rule.Id, StringComparison.Ordinal)))
+            .Select(static rule => rule.Id)
+            .ToArray();
+        string[] uncatalogued = documented
+            .Where(rule => !catalogue.Any(entry => string.Equals(entry.Id, rule.Id, StringComparison.Ordinal)))
+            .Select(static rule => rule.Id)
+            .ToArray();
+        string[] verdictMismatches = documented
+            .Where(rule => catalogue.Any(entry =>
+                string.Equals(entry.Id, rule.Id, StringComparison.Ordinal) && entry.Supported != rule.Supported))
+            .Select(static rule => rule.Id)
+            .ToArray();
+
+        bool documentedPassed =
+            undocumented.Length == 0 && uncatalogued.Length == 0 && verdictMismatches.Length == 0;
+
+        yield return Check.Assert(
+            "D06.classification-rules.documented",
+            "Classification rule catalogue",
+            "the classification rules in code are compared with the documented rule table",
+            "code=documented",
+            documentedPassed ? "code=documented" : $"code={catalogue.Length}, documented={documented.Count}",
+            $"codeNotDocumented=[{string.Join(", ", undocumented)}]; documentedNotInCode=[{string.Join(", ", uncatalogued)}]; " +
+            $"verdictMismatches=[{string.Join(", ", verdictMismatches)}]; rules={catalogue.Length}; documented={documented.Count}",
+            documentedPassed);
+
+        string[] applied = TraversalInventory.Ledger.AppliedRules().ToArray();
+        string[] appliedNotCatalogued = applied.Where(rule => !RuleCatalog.Contains(rule)).ToArray();
+        string[] supportedNotAllowlisted = applied.Where(rule => !RuleCatalog.IsSupportedRule(rule) && rule.StartsWith("supported.", StringComparison.Ordinal)).ToArray();
+        string[] sourceRulesNotCatalogued = MetadataSourceRules.All
+            .SelectMany(MetadataSourceRules.ClassificationRules)
+            .Where(rule => !RuleCatalog.Contains(rule))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static rule => rule, StringComparer.Ordinal)
+            .ToArray();
+        string[] visitedNodeKinds = TraversalInventory.Ledger.VisitedNodeKinds()
+            .Select(RecordedKindRules.Name)
+            .ToArray();
+        string[] nodeKindRulesNotCatalogued = RecordedKindRules.All
+            .SelectMany(RecordedKindRules.ClassificationRules)
+            .Where(rule => !RuleCatalog.Contains(rule))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static rule => rule, StringComparer.Ordinal)
+            .ToArray();
+        string[] unvisitedNodeKinds = RecordedKindRules.All
+            .Where(kind => !TraversalInventory.Ledger.VisitedNodeKinds().Contains(kind))
+            .Select(RecordedKindRules.Name)
+            .ToArray();
+        string[] unvisitedSources = MetadataSourceRules.All
+            .Where(source => !TraversalInventory.Ledger.VisitedSources().Contains(source))
+            .Select(MetadataSourceRules.Id)
+            .ToArray();
+
+        bool appliedPassed =
+            appliedNotCatalogued.Length == 0 &&
+            supportedNotAllowlisted.Length == 0 &&
+            sourceRulesNotCatalogued.Length == 0 &&
+            nodeKindRulesNotCatalogued.Length == 0 &&
+            unvisitedNodeKinds.Length == 0 &&
+            unvisitedSources.Length == 0;
+
+        yield return Check.Assert(
+            "D06.classification-rules.observed",
+            "Classification rule catalogue",
+            "every rule the traversal and the classifier applied is a documented rule of the catalogue",
+            "applied=documented, nodeKinds=all-visited, sources=all-visited",
+            appliedPassed ? "applied=documented" : $"appliedNotCatalogued={appliedNotCatalogued.Length}",
+            $"applied=[{string.Join(", ", applied)}]; appliedNotCatalogued=[{string.Join(", ", appliedNotCatalogued)}]; " +
+            $"supportedNotAllowlisted=[{string.Join(", ", supportedNotAllowlisted)}]; " +
+            $"sourceRulesNotCatalogued=[{string.Join(", ", sourceRulesNotCatalogued)}]; " +
+            $"nodeKindRulesNotCatalogued=[{string.Join(", ", nodeKindRulesNotCatalogued)}]; " +
+            $"visitedNodeKinds=[{string.Join(", ", visitedNodeKinds)}]; unvisitedNodeKinds=[{string.Join(", ", unvisitedNodeKinds)}]; " +
+            $"unvisitedSources=[{string.Join(", ", unvisitedSources)}]",
+            appliedPassed);
+    }
+
+    /// <summary>
+    /// The allowlists of the deny-by-default classifier are compared with the documented lists, so a
+    /// supported verdict can never rest on a construct that is not published, and the framework is asked to
+    /// confirm that every allowlisted scalar type has a usable framework converter.
+    /// </summary>
+    private static IEnumerable<CheckOutcome> AllowlistChecks(string[] lines)
+    {
+        string[] documentedScalars = DocumentationTables.ReadAllowlist(lines, AllowlistKind.ScalarTypes)?.ToArray() ?? Array.Empty<string>();
+        string[] documentedConverters = DocumentationTables.ReadAllowlist(lines, AllowlistKind.Converters)?.ToArray() ?? Array.Empty<string>();
+        string[] documentedResolvers = DocumentationTables.ReadAllowlist(lines, AllowlistKind.Resolvers)?.ToArray() ?? Array.Empty<string>();
+
+        string[] documented = documentedScalars.Concat(documentedConverters).Concat(documentedResolvers).ToArray();
+        string[] coded = ContractAllowlists.ScalarTypeNames
+            .Concat(ContractAllowlists.ConverterNames)
+            .Concat(ContractAllowlists.ResolverNames)
+            .ToArray();
+        string[] notDocumented = coded.Where(name => !documented.Contains(name, StringComparer.Ordinal)).ToArray();
+        string[] notInCode = documented.Where(name => !coded.Contains(name, StringComparer.Ordinal)).ToArray();
+        bool documentedPassed = notDocumented.Length == 0 && notInCode.Length == 0;
+
+        yield return Check.Assert(
+            "D06.allowlist.documented",
+            "Deny-by-default allowlist",
+            "the scalar, converter, and resolver allowlists in code are compared with the documented lists",
+            "code=documented",
+            documentedPassed ? "code=documented" : $"code={coded.Length}, documented={documented.Length}",
+            $"scalars={documentedScalars.Length}; converters={documentedConverters.Length}; resolvers={documentedResolvers.Length}; " +
+            $"codeNotDocumented=[{string.Join(", ", notDocumented)}]; documentedNotInCode=[{string.Join(", ", notInCode)}]",
+            documentedPassed);
+
+        JsonSerializerOptions options = JsonContractOptions.Reflection();
+        var failures = new List<string>();
+        var verified = new List<string>();
+
+        foreach (Type type in ContractAllowlists.ScalarTypes)
+        {
+            JsonConverter converter = options.GetConverter(type);
+            bool frameworkConverter = ContractAllowlists.IsFrameworkAssembly(converter.GetType());
+            bool placeholder = converter.GetType().Name.StartsWith("UnsupportedTypeConverter", StringComparison.Ordinal);
+            bool scalarKind = options.GetTypeInfo(type).Kind == JsonTypeInfoKind.None;
+
+            if (frameworkConverter && !placeholder && scalarKind)
+            {
+                verified.Add(TypeShapes.TypeName(type));
+            }
+            else
+            {
+                failures.Add(
+                    $"{TypeShapes.TypeName(type)}: frameworkConverter={frameworkConverter}, placeholder={placeholder}, scalarKind={scalarKind}");
+            }
+        }
+
+        JsonConverter control = options.GetConverter(typeof(IntPtr));
+        bool controlRejected =
+            control.GetType().Name.StartsWith("UnsupportedTypeConverter", StringComparison.Ordinal) &&
+            !ContractAllowlists.ScalarTypes.Contains(typeof(IntPtr));
+        bool converterEntriesFramework = ContractAllowlists.Converters.All(entry =>
+            ContractAllowlists.IsFrameworkAssembly(entry.Definition) &&
+            typeof(JsonConverter).IsAssignableFrom(entry.Definition));
+        bool resolverEntriesFramework = ContractAllowlists.Resolvers.All(ContractAllowlists.IsFrameworkAssembly);
+        bool verifiedPassed =
+            failures.Count == 0 && controlRejected && converterEntriesFramework && resolverEntriesFramework;
+
+        yield return Check.Assert(
+            "D06.allowlist.verified",
+            "Deny-by-default allowlist",
+            "every allowlisted scalar type resolves to a usable framework converter, the allowlisted converters and resolvers ship in the framework assembly, and a type outside the allowlist is rejected by the same test",
+            "scalars=framework-converter-and-scalar-kind, converters=framework, resolvers=framework, control=rejected",
+            verifiedPassed
+                ? "scalars=verified, converters=framework, resolvers=framework, control=rejected"
+                : $"scalarFailures={failures.Count}, controlRejected={controlRejected}",
+            $"verifiedScalars={verified.Count}/{ContractAllowlists.ScalarTypes.Count}; failures=[{string.Join(", ", failures)}]; " +
+            $"control={control.GetType().Name}; controlRejected={controlRejected}; " +
+            $"convertersFramework={converterEntriesFramework}; resolversFramework={resolverEntriesFramework}",
+            verifiedPassed);
     }
 
     /// <summary>
@@ -115,7 +299,7 @@ internal static class InventoryRules
     /// inventory must name a check that actually exercises the source, so documenting a path with the wrong
     /// check id fails the gate.
     /// </summary>
-    private static string[] inventoryMismatchesFor(
+    private static string[] InventoryMismatches(
         IReadOnlyList<KeyValuePair<string, string>> bindings,
         IReadOnlyList<KeyValuePair<string, string>> documented,
         IReadOnlyList<CheckOutcome> checks)
@@ -142,28 +326,5 @@ internal static class InventoryRules
         }
 
         return mismatches.OrderBy(static mismatch => mismatch, StringComparer.Ordinal).ToArray();
-    }
-
-    /// <summary>
-    /// Locates the inventory document from the running output directory, without depending on the working
-    /// directory the process was started from.
-    /// </summary>
-    private static string? LocateDocument()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-
-        while (directory is not null)
-        {
-            string candidate = Path.Combine(directory.FullName, "docs", "compatibility-rules.md");
-
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            directory = directory.Parent;
-        }
-
-        return null;
     }
 }

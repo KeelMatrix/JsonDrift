@@ -22,7 +22,9 @@ its contract from that effective metadata - `JsonTypeInfo` from a source-generat
 `ReaderBackward`, `WriterForward`, and `Full` in terms of wire readability, records the classification of
 every supported change under each policy, and names the executed proof for each one. It also states the
 explicit unsupported handling: an unrecognized converter or metadata source is reported as unsupported and
-never as compatible.
+never as compatible. Classification is deny by default: a contract is supported only when a single recursive
+traversal recorded the shape evidence behind it and its converter and resolver metadata matches an explicit
+framework allowlist, so a metadata path the walk missed is reported as unsupported instead of as compatible.
 
 [docs/initial-release-scope.md](docs/initial-release-scope.md) records the recommended first-release scope and
 the measured evidence behind it.

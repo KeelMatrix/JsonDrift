@@ -6,6 +6,11 @@
     <RootNamespace>KeelMatrix.JsonDrift.RuleMatrix</RootNamespace>
     <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- The metadata switches are exhaustive over the named members of an enumeration. CS8524 warns about
+         unnamed values, which the code cannot produce, so it is suppressed while the named-member warning
+         (CS8509) stays enabled: adding a discovery source or a node kind without handling it fails the
+         Release build. -->
+    <NoWarn>$(NoWarn);CS8524</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

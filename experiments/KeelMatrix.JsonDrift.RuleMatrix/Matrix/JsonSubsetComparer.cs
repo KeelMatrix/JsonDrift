@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
@@ -72,58 +73,119 @@ internal static class JsonSubsetComparer
     }
 
     /// <summary>
-    /// Numbers are compared by value, so a change of serialized form that carries the same number
-    /// (<c>5</c> written as <c>5.0</c>) is not reported as a loss. A parse only decides equality while it is
-    /// lossless for both sides: a decimal parse that collapses a non-zero value to zero, and a non-finite
-    /// double parse, fall back to serialized text so that a magnitude difference is never hidden. Every
-    /// other token is compared by serialized form.
+    /// Numbers are compared by exact value, so a change of serialized form that carries the same number
+    /// (<c>5</c> written as <c>5.0</c>, <c>1e2</c> written as <c>100</c>) is not reported as a loss, while a
+    /// difference in value is reported however the number was written. Every other token is compared by
+    /// serialized form.
     /// </summary>
     private static bool ValueEquals(JsonElement earlier, JsonElement later) =>
         earlier.ValueKind == JsonValueKind.Number && later.ValueKind == JsonValueKind.Number
-            ? NumbersEqual(earlier, later)
+            ? ExactValueEquals(earlier.GetRawText(), later.GetRawText())
             : string.Equals(earlier.GetRawText(), later.GetRawText(), StringComparison.Ordinal);
 
-    private static bool NumbersEqual(JsonElement earlier, JsonElement later)
+    /// <summary>
+    /// Compares two written JSON numbers exactly. <see cref="ExactValue"/> reduces a written number to its
+    /// sign, its significant digits, and the decimal exponent of its last significant digit, so equality
+    /// means that both forms denote the same mathematical value. The comparison is exact for every JSON
+    /// number, including values outside the range of <see cref="decimal"/> and of a finite
+    /// <see cref="double"/>: a magnitude difference that a rounded or non-finite parse would collapse is
+    /// therefore reported instead of hidden.
+    /// </summary>
+    private static bool ExactValueEquals(string earlier, string later)
     {
-        if (earlier.TryGetDecimal(out decimal earlierDecimal) &&
-            later.TryGetDecimal(out decimal laterDecimal) &&
-            IsLosslessZero(earlier, earlierDecimal == 0m) &&
-            IsLosslessZero(later, laterDecimal == 0m))
+        string? earlierValue = ExactValue(earlier);
+        string? laterValue = ExactValue(later);
+
+        if (earlierValue is null || laterValue is null)
         {
-            return earlierDecimal == laterDecimal;
+            return string.Equals(earlier, later, StringComparison.Ordinal);
         }
 
-        if (earlier.TryGetDouble(out double earlierDouble) &&
-            later.TryGetDouble(out double laterDouble) &&
-            double.IsFinite(earlierDouble) &&
-            double.IsFinite(laterDouble) &&
-            IsLosslessZero(earlier, earlierDouble == 0d) &&
-            IsLosslessZero(later, laterDouble == 0d))
-        {
-            return earlierDouble == laterDouble;
-        }
-
-        return string.Equals(earlier.GetRawText(), later.GetRawText(), StringComparison.Ordinal);
+        return string.Equals(earlierValue, laterValue, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// A numeric parse is only trusted while it did not collapse a non-zero magnitude to zero, which is how
-    /// a value below the representable range is reported.
+    /// The exact canonical form of a written JSON number: the optional sign, the significant digits with
+    /// leading and trailing zeros removed, and the decimal exponent of the digits. Zero is recorded as
+    /// <c>0</c>. A form that cannot be represented exactly is reported as null, and the comparison then falls
+    /// back to the serialized text.
     /// </summary>
-    private static bool IsLosslessZero(JsonElement element, bool parsedZero) =>
-        !parsedZero || !ContainsNonZeroDigit(element.GetRawText());
-
-    private static bool ContainsNonZeroDigit(string rawText)
+    private static string? ExactValue(string text)
     {
-        foreach (char character in rawText)
+        int index = 0;
+        bool negative = false;
+
+        if (text.StartsWith('-'))
         {
-            if (character is >= '1' and <= '9')
+            negative = true;
+            index = 1;
+        }
+
+        var digits = new List<char>();
+        int digitsBeforePoint = 0;
+        long exponent = 0;
+        bool afterPoint = false;
+
+        for (; index < text.Length; index++)
+        {
+            char character = text[index];
+
+            if (character == '.')
             {
-                return true;
+                afterPoint = true;
+                continue;
+            }
+
+            if (character is 'e' or 'E')
+            {
+                if (!long.TryParse(
+                    text[(index + 1)..],
+                    NumberStyles.AllowLeadingSign,
+                    CultureInfo.InvariantCulture,
+                    out exponent))
+                {
+                    return null;
+                }
+
+                break;
+            }
+
+            if (character is < '0' or > '9')
+            {
+                return null;
+            }
+
+            digits.Add(character);
+
+            if (!afterPoint)
+            {
+                digitsBeforePoint++;
             }
         }
 
-        return false;
+        int leading = 0;
+
+        while (leading < digits.Count && digits[leading] == '0')
+        {
+            leading++;
+        }
+
+        if (leading == digits.Count)
+        {
+            return "0";
+        }
+
+        int trailing = digits.Count;
+
+        while (trailing > leading && digits[trailing - 1] == '0')
+        {
+            trailing--;
+        }
+
+        long scale = exponent + digitsBeforePoint - trailing;
+        string significant = new(digits.GetRange(leading, trailing - leading).ToArray());
+
+        return $"{(negative ? "-" : string.Empty)}{significant}e{scale}";
     }
 
     private static string Describe(JsonElement element) => element.ValueKind switch

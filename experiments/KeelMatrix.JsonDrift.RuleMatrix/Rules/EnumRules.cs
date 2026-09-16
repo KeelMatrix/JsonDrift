@@ -28,7 +28,8 @@ internal static class EnumRules
         JsonTypeInfo extendedState = numeric.GetTypeInfo(typeof(StateHolderExtended));
         JsonTypeInfo camelStage = camelCase.GetTypeInfo(typeof(StageHolder));
         JsonTypeInfo snakeStage = snakeCase.GetTypeInfo(typeof(StageHolder));
-        JsonTypeInfo memberLevelState = text.GetTypeInfo(typeof(StateHolderMemberLevel));
+        JsonTypeInfo memberLevelState = numeric.GetTypeInfo(typeof(StateHolderMemberLevel));
+        JsonTypeInfo derivedMemberLevelState = numeric.GetTypeInfo(typeof(PolyEnumRoot));
 
         var numericValue = new StateHolderNumeric { State = OrderState.Shipped };
         var textValue = new StateHolderNumeric { State = OrderState.Shipped };
@@ -83,7 +84,7 @@ internal static class EnumRules
             WireProbe.Across(numericValue, numericState, numericState)));
 
         AddWireIdentityChecks(results, numericState, textState, renamedState, camelStage, snakeStage);
-        AddMemberLevelWireIdentityCheck(results, memberLevelState);
+        AddMemberLevelWireIdentityCheck(results, numeric, numericState, memberLevelState, derivedMemberLevelState);
 
         return results;
     }
@@ -92,37 +93,54 @@ internal static class EnumRules
     /// A member-level converter declaration is the member's effective converter, so the recorded wire name
     /// must come from it rather than from the contract's options or from the enum type. Two contracts whose
     /// wire is identical therefore produce the same recorded identity, and a member that writes strings
-    /// inside otherwise numeric options is recorded as strings.
+    /// inside otherwise numeric options is recorded as strings. The scenario is measured with
+    /// numeric-writing options, so the member-level declaration is the only source of the string wire, and
+    /// the derived-type variant proves that the member metadata of a registered derived type is recorded too.
     /// </summary>
-    private static void AddMemberLevelWireIdentityCheck(List<CheckOutcome> results, JsonTypeInfo memberLevelState)
+    private static void AddMemberLevelWireIdentityCheck(
+        List<CheckOutcome> results,
+        JsonSerializerOptions numeric,
+        JsonTypeInfo numericState,
+        JsonTypeInfo memberLevelState,
+        JsonTypeInfo derivedMemberLevelState)
     {
-        JsonSerializerOptions numeric = JsonContractOptions.Reflection();
         string memberDocument = ContractCanonicalizer.Canonicalize(memberLevelState);
-        string numericDocument = ContractCanonicalizer.Canonicalize(numeric.GetTypeInfo(typeof(StateHolderNumeric)));
-        string typeLevelDocument = ContractCanonicalizer.Canonicalize(
-            JsonContractOptions.Reflection().GetTypeInfo(typeof(PriorityHolder)));
+        string numericDocument = ContractCanonicalizer.Canonicalize(numericState);
+        string typeLevelDocument = ContractCanonicalizer.Canonicalize(numeric.GetTypeInfo(typeof(PriorityHolder)));
+        string derivedDocument = ContractCanonicalizer.Canonicalize(derivedMemberLevelState);
 
+        string? memberToken = ContractDocument.EnumWireToken(ContractDocument.MemberEnumWire(memberDocument, "State"), "Shipped");
+        string? numericToken = ContractDocument.EnumWireToken(ContractDocument.MemberEnumWire(numericDocument, "State"), "Shipped");
+        string? typeLevelToken = ContractDocument.EnumWireToken(ContractDocument.MemberEnumWire(typeLevelDocument, "Priority"), "High");
+        string? derivedToken = ContractDocument.EnumWireToken(
+            ContractDocument.DerivedTypeMemberEnumWire(derivedDocument, "State"),
+            "Shipped");
 
-        bool memberRecordsName =
-            memberDocument.Contains("\"Shipped\": \"Shipped\"", StringComparison.Ordinal) &&
-            !memberDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal);
+        string? memberTokenKind = ContractDocument.MemberTokenKind(memberDocument, "State");
+        ReadOutcome wire = WireProbe.Across(
+            new StateHolderNumeric { State = OrderState.Shipped },
+            numericState,
+            memberLevelState);
 
+        bool memberRecordsName = string.Equals(memberToken, "Shipped", StringComparison.Ordinal) &&
+            string.Equals(memberTokenKind, "string", StringComparison.Ordinal);
+        bool numericRecordsValue = string.Equals(numericToken, "1", StringComparison.Ordinal);
+        bool typeLevelRecordsName = string.Equals(typeLevelToken, "High", StringComparison.Ordinal);
+        bool derivedRecordsName = string.Equals(derivedToken, "Shipped", StringComparison.Ordinal);
         bool recordsTheWireTheMemberActuallyUses =
-            memberRecordsName &&
-            typeLevelDocument.Contains("\"High\": \"High\"", StringComparison.Ordinal) &&
-            numericDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal);
+            memberRecordsName && numericRecordsValue && typeLevelRecordsName && derivedRecordsName;
 
         results.Add(Check.Assert(
             "R08.enum.member-level.wire-identity",
             "Enum representation change",
             "an enum member declares a framework string-enum converter while the contract options write numbers",
-            "canonical document records the member's effective wire name and matches the type-level path for the same wire",
+            "member=stringTokenRecorded, numericPath=numericTokenRecorded, typeLevelPath=stringTokenRecorded, derivedTypeMember=stringTokenRecorded, wire=Changed",
             recordsTheWireTheMemberActuallyUses
-                ? "canonical=MemberEffectiveConverterRecorded"
-                : "canonical=MemberEffectiveConverterIgnored",
-            $"memberLevelRecordsName={memberRecordsName}; numericPathRecordsValue={numericDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal)}; " +
-            $"typeLevelRecordsName={typeLevelDocument.Contains("\"High\": \"High\"", StringComparison.Ordinal)}",
-            recordsTheWireTheMemberActuallyUses));
+                ? $"member={memberToken}, numeric={numericToken}, typeLevel={typeLevelToken}, derived={derivedToken}"
+                : $"member={memberToken ?? "<missing>"}, numeric={numericToken ?? "<missing>"}, " +
+                  $"typeLevel={typeLevelToken ?? "<missing>"}, derived={derivedToken ?? "<missing>"}",
+            $"memberTokenKind={memberTokenKind ?? "<missing>"}; wire: {Check.Describe(wire)}",
+            recordsTheWireTheMemberActuallyUses && !wire.Lossless && wire.Fault is null));
     }
 
     /// <summary>
