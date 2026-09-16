@@ -46,11 +46,12 @@ internal static class UnsupportedRules
 
         var customResolverOptions = new JsonSerializerOptions { TypeInfoResolver = new ConverterInjectingResolver() };
 
-        results.Add(Check.Unsupported(
+        results.Add(OpaqueReach(
             "R14.converter.custom-metadata-resolver",
-            "Opaque converter",
             "a custom metadata resolver replaces a member converter",
-            ConverterClassifier.DescribeUnsupported(customResolverOptions.GetTypeInfo(typeof(InvoiceAmounts)))));
+            MetadataDiscoverySources.ResolverChain,
+            "R14.converter.custom-metadata-resolver",
+            customResolverOptions.GetTypeInfo(typeof(InvoiceAmounts))));
 
         results.Add(Check.Supported(
             "R14.converter.default-resolver-supported",
@@ -138,88 +139,188 @@ internal static class UnsupportedRules
         results.Add(OpaqueReach(
             "R14.converter.opaque-collection-element",
             "a collection element type declares a custom converter",
+            MetadataDiscoverySources.EnumerableElementTypes,
+            "R14.converter.opaque-collection-element",
             reflection.GetTypeInfo(typeof(ProbeElementList))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-array-element",
             "an array element type declares a custom converter",
+            MetadataDiscoverySources.EnumerableElementTypes,
+            "R14.converter.opaque-collection-element",
             reflection.GetTypeInfo(typeof(ProbeElementArray))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-dictionary-value",
             "a dictionary value type declares a custom converter",
+            MetadataDiscoverySources.DictionaryValueTypes,
+            "R14.converter.opaque-dictionary-value",
             reflection.GetTypeInfo(typeof(ProbeValueDictionary))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-options-dictionary-value",
             "a converter registered on the options applies to a dictionary value type",
+            MetadataDiscoverySources.DictionaryValueTypes,
+            "R14.converter.opaque-dictionary-value",
             withDecimalConverter.GetTypeInfo(typeof(ProbeAmountLedger))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-dictionary-key",
+            "a dictionary key type declares a custom converter",
+            MetadataDiscoverySources.DictionaryKeyTypes,
+            "R14.converter.opaque-dictionary-key",
+            reflection.GetTypeInfo(typeof(ProbeKeyDictionary))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-root-from-options",
             "a converter registered on the options applies to the root type",
+            MetadataDiscoverySources.OptionsConverters,
+            "R14.converter.opaque-root-from-options",
             withRootConverter.GetTypeInfo(typeof(Money))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-root-element",
             "the root type is a collection whose element type declares a custom converter",
+            MetadataDiscoverySources.EnumerableElementTypes,
+            "R14.converter.opaque-collection-element",
             reflection.GetTypeInfo(typeof(List<ProbeMoney>))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-root-dictionary-value",
             "the root type is a dictionary whose value type is converted by a converter registered on the options",
+            MetadataDiscoverySources.DictionaryValueTypes,
+            "R14.converter.opaque-dictionary-value",
             withDecimalConverter.GetTypeInfo(typeof(Dictionary<string, decimal>))));
 
         results.Add(OpaqueReach(
-            "R14.converter.opaque-namespace-shadow",
+            "R14.converter.opaque-member-converter",
             "a custom converter declares a System.Text.Json namespace",
+            MetadataDiscoverySources.MemberConverterAttribute,
+            "R14.converter.opaque-member-converter",
             reflection.GetTypeInfo(typeof(ShadowConverterHolder))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-nested-element-depth-2",
             "a custom converter is declared on an element type two collection levels below the member",
+            MetadataDiscoverySources.EnumerableElementTypes,
+            "R14.converter.opaque-collection-element",
             reflection.GetTypeInfo(typeof(ProbeNestedElementList))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-nested-element-depth-3",
             "a custom converter is declared on an element type three collection levels below the member",
+            MetadataDiscoverySources.EnumerableElementTypes,
+            "R14.converter.opaque-collection-element",
             reflection.GetTypeInfo(typeof(ProbeDeepElementList))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-nested-combination",
             "a custom converter is declared on a list element inside a dictionary value",
+            MetadataDiscoverySources.DictionaryValueTypes,
+            "R14.converter.opaque-dictionary-value",
             reflection.GetTypeInfo(typeof(ProbeNestedCombination))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-object-graph-depth-1",
             "a custom converter is declared one member level below the root",
+            MetadataDiscoverySources.ObjectMembers,
+            "R14.converter.opaque-member-type",
             reflection.GetTypeInfo(typeof(ProbeDepth1))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-member-type",
+            "a member's declared type carries a custom converter",
+            MetadataDiscoverySources.ObjectMembers,
+            "R14.converter.opaque-member-type",
+            reflection.GetTypeInfo(typeof(ProbeTypeAttributeHolder))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-type-attribute",
+            "a converter attribute is declared on a type reachable through the root type",
+            MetadataDiscoverySources.TypeConverterAttribute,
+            "R14.converter.opaque-type-attribute",
+            reflection.GetTypeInfo(typeof(ProbeTypeAttributeHolder))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-object-graph-depth-2",
             "a custom converter is declared two member levels below the root",
+            MetadataDiscoverySources.ObjectMembers,
+            "R14.converter.opaque-member-type",
             reflection.GetTypeInfo(typeof(ProbeDepth2))));
 
         results.Add(OpaqueReach(
             "R14.converter.opaque-object-graph-depth-3",
             "a custom converter is declared three member levels below the root",
+            MetadataDiscoverySources.ObjectMembers,
+            "R14.converter.opaque-member-type",
             reflection.GetTypeInfo(typeof(ProbeDepth3))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-constructor-parameter",
+            "a constructor parameter type declares a custom converter",
+            MetadataDiscoverySources.ConstructorParameters,
+            "R14.converter.opaque-constructor-parameter",
+            reflection.GetTypeInfo(typeof(ConstructorOpaqueHolder))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-extension-data-value",
+            "the value type captured by an extension-data member is converted by a converter registered on the options",
+            MetadataDiscoverySources.ExtensionData,
+            "R14.converter.opaque-extension-data-value",
+            JsonContractOptions.Reflection(new OpaqueJsonElementConverter()).GetTypeInfo(typeof(ExtensionDataOpaqueHolder))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-member-custom-converter",
+            "the metadata provider assigns a member converter without a converter attribute",
+            MetadataDiscoverySources.MemberCustomConverter,
+            "R14.converter.opaque-member-custom-converter",
+            new JsonSerializerOptions { TypeInfoResolver = new ConverterInjectingResolver() }
+                .GetTypeInfo(typeof(ResolverInjectedHolder))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-polymorphic-derived-member",
+            "a registered derived type carries a member whose type declares a custom converter",
+            MetadataDiscoverySources.PolymorphismDerivedTypes,
+            "R14.converter.opaque-polymorphic-derived-member",
+            reflection.GetTypeInfo(typeof(PolyRoot))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-polymorphic-options-derived-member",
+            "a converter registered on the options applies inside a registered derived type",
+            MetadataDiscoverySources.PolymorphismDerivedTypes,
+            "R14.converter.opaque-polymorphic-derived-member",
+            withDecimalConverter.GetTypeInfo(typeof(PolyOptionsRoot))));
+
+        results.Add(OpaqueReach(
+            "R14.converter.opaque-polymorphic-nested-depth-2",
+            "a registered derived type two derivation levels below a polymorphic member carries an opaque converter",
+            MetadataDiscoverySources.PolymorphismDerivedTypes,
+            "R14.converter.opaque-polymorphic-derived-member",
+            reflection.GetTypeInfo(typeof(ProbePolyNested))));
 
         results.Add(OpaqueReach(
             "R14.converter.traversal-depth-limit",
             "a member nests collections deeper than the classification traversal budget",
+            MetadataDiscoverySources.EnumerableElementTypes,
+            "R14.converter.opaque-collection-element",
             reflection.GetTypeInfo(typeof(ProbeDepthLimitContract))));
     }
 
-    private static CheckOutcome OpaqueReach(string id, string change, JsonTypeInfo contract)
+    private static CheckOutcome OpaqueReach(
+        string id,
+        string change,
+        string source,
+        string pathId,
+        JsonTypeInfo contract)
     {
         string? reason = ConverterClassifier.DescribeUnsupported(contract);
         string document = ContractCanonicalizer.Canonicalize(contract);
         bool canonicalSupported = ContractDocument.RootSupported(document);
+        bool canonicalOverallSupported = ContractDocument.OverallSupported(document);
 
         var report = new ContractChangeReport();
         report.AddCompatible("R01.property-add.optional", "an optional member was added and earlier members are preserved");
-        report.AddUnsupported(id, reason ?? "the contract was reported as supported");
+        report.AddUnsupported(id, reason is null ? "the contract was reported as supported" : MetadataDiscoverySources.Reason(reason));
 
         bool assertionFailed = false;
 
@@ -236,9 +337,12 @@ internal static class UnsupportedRules
             id,
             "Opaque converter",
             change,
-            "metadata=Unsupported, canonical=Unsupported, report=Unsupported",
-            $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(canonicalSupported ? "Supported" : "Unsupported")}, report={report.Status}",
-            $"reason: {reason ?? "none"}; assertion failed: {assertionFailed}",
-            reason is not null && !canonicalSupported && report.Status == "Unsupported" && assertionFailed);
+            "metadata=Unsupported, canonical=Unsupported, overall=Unsupported, report=Unsupported",
+            $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(canonicalSupported ? "Supported" : "Unsupported")}, overall={(canonicalOverallSupported ? "Supported" : "Unsupported")}, report={report.Status}",
+            $"source={source}; path={pathId}; reason: {(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertion failed: {assertionFailed}",
+            reason is not null && !canonicalSupported && !canonicalOverallSupported &&
+            report.Status == "Unsupported" && assertionFailed,
+            source,
+            pathId);
     }
 }

@@ -8,59 +8,63 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 /// <summary>
 /// Classifies converters by declared type identity. A converter the library does not know cannot be
 /// classified from metadata, so it is reported as unsupported instead of being assumed compatible.
-/// The declared metadata considered here is the converter attribute on the member, on the member type, on
-/// an element, key, or value type reachable from the member, or on the root type, plus converters
-/// registered on the serializer options.
+/// All nested metadata discovery happens in one bounded recursive walk, defined by
+/// <see cref="MetadataDiscoverySources"/>: the converter declared on the root type, on a member, on a
+/// member's type, on any reachable element, key, or value type, on a registered derived type, or in the
+/// serializer options, plus the identity of the metadata resolver that produced the contract.
 /// </summary>
 internal static class ConverterClassifier
 {
     /// <summary>
-    /// Traversal budget for reachable element, key, value, and nested member types. A contract that nests
-    /// deeper than this is reported unsupported rather than assumed classifiable.
+    /// Traversal budget for reachable element, key, value, derived-type, and nested member types. A
+    /// contract that nests deeper than this is reported unsupported rather than assumed classifiable.
     /// </summary>
     public const int MaxTraversalDepth = 8;
 
     /// <summary>
-    /// A converter is known only when it ships in the framework <c>System.Text.Json</c> assembly. A
-    /// namespace prefix is not evidence of framework provenance, because application converters may
-    /// declare a <c>System.Text.Json</c> namespace of their own.
-    /// </summary>
-    public static bool IsKnownConverterType(Type converterType)
-    {
-        ArgumentNullException.ThrowIfNull(converterType);
-
-        return converterType.Assembly == typeof(JsonSerializer).Assembly;
-    }
-
-    /// <summary>
     /// Returns a reason when the contract cannot be classified from trustworthy metadata, otherwise null.
+    /// This is the only entry point for classifier metadata: root and member classification both delegate
+    /// to the same bounded walk.
     /// </summary>
     public static string? DescribeUnsupported(JsonTypeInfo typeInfo)
     {
         ArgumentNullException.ThrowIfNull(typeInfo);
 
-        string? resolverReason = DescribeUnrecognizedResolver(typeInfo);
+        string? resolverReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.ResolverChain,
+            () => DescribeUnrecognizedResolver(typeInfo));
 
         if (resolverReason is not null)
         {
             return resolverReason;
         }
 
-        string? rootReason = DescribeDeclared(typeInfo.Type.GetCustomAttribute<JsonConverterAttribute>(inherit: true));
+        string? rootAttributeReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.TypeConverterAttribute,
+            () => DescribeDeclared(typeInfo.Type.GetCustomAttribute<JsonConverterAttribute>(inherit: true)));
 
-        if (rootReason is not null)
+        if (rootAttributeReason is not null)
         {
-            return $"root type {rootReason}";
+            return $"root type {rootAttributeReason}";
         }
 
-        string? rootOptionsReason = DescribeOptionsConverter(typeInfo.Options, typeInfo.Type, "root type");
+        string? rootOptionsReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.OptionsConverters,
+            () => DescribeOptionsConverter(typeInfo.Options, typeInfo.Type, "root type"));
 
         if (rootOptionsReason is not null)
         {
             return rootOptionsReason;
         }
 
-        return DescribeTypeUnsupported(typeInfo.Options, typeInfo.Type, 0, new HashSet<Type>(), "root type");
+        return DescribeBoundedMetadata(
+            MetadataDiscoverySources.TypeConverterAttribute,
+            typeInfo.Options,
+            typeInfo.Type,
+            0,
+            new HashSet<Type>(),
+            "root type",
+            new HashSet<string>(StringComparer.Ordinal));
     }
 
     public static bool IsSupported(JsonTypeInfo typeInfo) => DescribeUnsupported(typeInfo) is null;
@@ -99,51 +103,82 @@ internal static class ConverterClassifier
         ArgumentNullException.ThrowIfNull(property);
 
         MemberInfo? member = ResolveMember(owner.Type, property);
-        string? memberReason = member is null
-            ? null
-            : DescribeDeclared(member.GetCustomAttribute<JsonConverterAttribute>(inherit: true));
+        string? memberAttributeReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.MemberConverterAttribute,
+            () => member is null
+                ? null
+                : DescribeDeclared(member.GetCustomAttribute<JsonConverterAttribute>(inherit: true)));
 
-        if (memberReason is not null)
+        if (memberAttributeReason is not null)
         {
-            return $"member '{property.Name}' {memberReason}";
+            return $"member '{property.Name}' {memberAttributeReason}";
+        }
+
+        string? memberConverterReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.MemberCustomConverter,
+            () => DescribeResolvedConverter(property.CustomConverter, $"member '{property.Name}'"));
+
+        if (memberConverterReason is not null)
+        {
+            return memberConverterReason;
         }
 
         Type memberType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-        string? typeReason = DescribeDeclared(memberType.GetCustomAttribute<JsonConverterAttribute>(inherit: true));
+        string? typeAttributeReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.TypeConverterAttribute,
+            () => DescribeDeclared(memberType.GetCustomAttribute<JsonConverterAttribute>(inherit: true)));
 
-        if (typeReason is not null)
+        if (typeAttributeReason is not null)
         {
-            return $"member '{property.Name}' {typeReason}";
+            return $"member '{property.Name}' {typeAttributeReason}";
         }
 
-        string? optionsReason = DescribeOptionsConverter(owner.Options, property.PropertyType, $"member '{property.Name}'");
+        string? optionsReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.OptionsConverters,
+            () => DescribeOptionsConverter(owner.Options, property.PropertyType, $"member '{property.Name}'"));
 
         if (optionsReason is not null)
         {
             return optionsReason;
         }
 
-        return DescribeTypeUnsupported(owner.Options, memberType, depth + 1, visited, $"member '{property.Name}'");
+        return DescribeBoundedMetadata(
+            MetadataDiscoverySources.ObjectMembers,
+            owner.Options,
+            memberType,
+            depth + 1,
+            visited,
+            $"member '{property.Name}'",
+            new HashSet<string>(StringComparer.Ordinal));
     }
 
     /// <summary>
-    /// Walks element, key, and value types of a declared member type, then the members of a referenced
-    /// object contract, so an unrecognized converter can never hide below the first level. The same
-    /// converter check applies at every level, and exhausting the traversal budget is reported as
-    /// unsupported rather than as classifiable.
+    /// The single recursive metadata walk. Every discovery source is routed through it, so a metadata path
+    /// added without being named in <see cref="MetadataDiscoverySources"/> cannot silently stay supported.
+    /// A shared visited set keeps recursive contracts finite, the visit budget stops contracts that nest
+    /// deeper than the supported depth, and no application converter is ever executed.
     /// </summary>
-    private static string? DescribeTypeUnsupported(
+    private static string? DescribeBoundedMetadata(
+        string source,
         JsonSerializerOptions options,
         Type type,
         int depth,
         HashSet<Type> visited,
-        string path)
+        string path,
+        HashSet<string> budgetGuard)
     {
         Type shapeType = Nullable.GetUnderlyingType(type) ?? type;
 
+        if (!budgetGuard.Add($"{depth}:{TypeShapes.TypeName(shapeType)}"))
+        {
+            return null;
+        }
+
         if (depth > MaxTraversalDepth)
         {
-            return $"{path} nests deeper than the classification depth limit ({MaxTraversalDepth})";
+            return MetadataDiscoverySources.Witness(
+                source,
+                $"{path} nests deeper than the classification depth limit ({MaxTraversalDepth})");
         }
 
         if (!visited.Add(shapeType))
@@ -151,35 +186,67 @@ internal static class ConverterClassifier
             return null;
         }
 
-        string? declaredReason = DescribeDeclared(shapeType.GetCustomAttribute<JsonConverterAttribute>(inherit: true));
+        string? declaredReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.TypeConverterAttribute,
+            () => DescribeDeclared(shapeType.GetCustomAttribute<JsonConverterAttribute>(inherit: true)));
 
         if (declaredReason is not null)
         {
-            return $"{path} {declaredReason}";
+            return MetadataDiscoverySources.Witness(source, $"{path} {declaredReason}");
         }
 
-        string? optionsReason = DescribeOptionsConverter(options, shapeType, path);
+        string? optionsReason = MetadataDiscoverySources.FindUnsupported(
+            MetadataDiscoverySources.OptionsConverters,
+            () => DescribeOptionsConverter(options, shapeType, path));
 
         if (optionsReason is not null)
         {
-            return optionsReason;
+            return MetadataDiscoverySources.Witness(source, optionsReason);
+        }
+
+        string? polymorphismReason = DescribePolymorphismUnsupported(options, shapeType, depth, visited, path);
+
+        if (polymorphismReason is not null)
+        {
+            return polymorphismReason;
         }
 
         if (TypeShapes.TryGetDictionaryTypes(shapeType, out Type? keyType, out Type? valueType))
         {
-            string? keyReason = DescribeTypeUnsupported(options, keyType!, depth + 1, visited, $"{path} key type");
+            string? keyReason = DescribeBoundedMetadata(
+                MetadataDiscoverySources.DictionaryKeyTypes,
+                options,
+                keyType!,
+                depth + 1,
+                visited,
+                $"{path} key type",
+                budgetGuard);
 
             if (keyReason is not null)
             {
                 return keyReason;
             }
 
-            return DescribeTypeUnsupported(options, valueType!, depth + 1, visited, $"{path} value type");
+            return DescribeBoundedMetadata(
+                MetadataDiscoverySources.DictionaryValueTypes,
+                options,
+                valueType!,
+                depth + 1,
+                visited,
+                $"{path} value type",
+                budgetGuard);
         }
 
         if (TypeShapes.ElementType(shapeType) is Type elementType)
         {
-            return DescribeTypeUnsupported(options, elementType, depth + 1, visited, $"{path} element type");
+            return DescribeBoundedMetadata(
+                MetadataDiscoverySources.EnumerableElementTypes,
+                options,
+                elementType,
+                depth + 1,
+                visited,
+                $"{path} element type",
+                budgetGuard);
         }
 
         if (TypeShapes.IsScalar(shapeType))
@@ -187,15 +254,136 @@ internal static class ConverterClassifier
             return null;
         }
 
-        return DescribeNestedMembersUnsupported(options, shapeType, depth, visited, path);
+        return DescribeMembersUnsupported(
+            MetadataDiscoverySources.ObjectMembers,
+            options,
+            shapeType,
+            depth,
+            visited,
+            path,
+            budgetGuard,
+            string.Empty);
     }
 
-    private static string? DescribeNestedMembersUnsupported(
+    private static string? DescribePolymorphismUnsupported(
+        JsonSerializerOptions options,
+        Type shapeType,
+        int depth,
+        HashSet<Type> visited,
+        string path)
+    {
+        JsonPolymorphismOptions? polymorphism;
+
+        try
+        {
+            JsonTypeInfo polymorphic = options.GetTypeInfo(shapeType);
+
+            if (polymorphic.Kind != JsonTypeInfoKind.Object)
+            {
+                return null;
+            }
+
+            string? parameterReason = DescribeConstructorParametersUnsupported(
+                MetadataDiscoverySources.ConstructorParameters,
+                options,
+                shapeType,
+                depth,
+                visited,
+                path);
+
+            if (parameterReason is not null)
+            {
+                return parameterReason;
+            }
+
+            polymorphism = polymorphic.PolymorphismOptions;
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException or JsonException)
+        {
+            return null;
+        }
+
+        return DescribeRegisteredDerivedTypesUnsupported(options, polymorphism, depth, visited, path);
+    }
+
+    private static string? DescribeRegisteredDerivedTypesUnsupported(
+        JsonSerializerOptions options,
+        JsonPolymorphismOptions? polymorphism,
+        int depth,
+        HashSet<Type> visited,
+        string path)
+    {
+        if (polymorphism is null || polymorphism.DerivedTypes.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (JsonDerivedType derived in polymorphism.DerivedTypes
+            .OrderBy(static derived => derived.TypeDiscriminator?.ToString(), StringComparer.Ordinal))
+        {
+            string derivedPath = $"{path} registered derived type '{derived.TypeDiscriminator}'";
+            Type derivedType = derived.DerivedType;
+
+            if (depth + 1 > MaxTraversalDepth)
+            {
+                return MetadataDiscoverySources.Witness(
+                    MetadataDiscoverySources.PolymorphismDerivedTypes,
+                    $"{derivedPath} nests deeper than the classification depth limit ({MaxTraversalDepth})");
+            }
+
+            if (!visited.Add(derivedType))
+            {
+                continue;
+            }
+
+            string? declaredReason = MetadataDiscoverySources.FindUnsupported(
+                MetadataDiscoverySources.TypeConverterAttribute,
+                () => DescribeDeclared(derivedType.GetCustomAttribute<JsonConverterAttribute>(inherit: true)));
+
+            if (declaredReason is not null)
+            {
+                return MetadataDiscoverySources.Witness(
+                    MetadataDiscoverySources.PolymorphismDerivedTypes,
+                    $"{derivedPath} {declaredReason}");
+            }
+
+            string? optionsReason = MetadataDiscoverySources.FindUnsupported(
+                MetadataDiscoverySources.OptionsConverters,
+                () => DescribeOptionsConverter(options, derivedType, derivedPath));
+
+            if (optionsReason is not null)
+            {
+                return optionsReason;
+            }
+
+            string? membersReason = DescribeMembersUnsupported(
+                MetadataDiscoverySources.PolymorphismDerivedTypes,
+                options,
+                derivedType,
+                depth,
+                visited,
+                derivedPath,
+                new HashSet<string>(StringComparer.Ordinal),
+                string.Empty);
+
+            if (membersReason is not null)
+            {
+                return membersReason;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? DescribeMembersUnsupported(
+        string source,
         JsonSerializerOptions options,
         Type type,
         int depth,
         HashSet<Type> visited,
-        string path)
+        string path,
+        HashSet<string> budgetGuard,
+        string memberPrefix)
     {
         Type shapeType = Nullable.GetUnderlyingType(type) ?? type;
 
@@ -214,7 +402,9 @@ internal static class ConverterClassifier
         }
         catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException or JsonException)
         {
-            return $"{path} has no metadata for these options ({exception.GetType().Name})";
+            return MetadataDiscoverySources.Witness(
+                source,
+                $"{path} has no metadata for these options ({exception.GetType().Name})");
         }
 
         if (referenced.Kind != JsonTypeInfoKind.Object)
@@ -222,13 +412,99 @@ internal static class ConverterClassifier
             return null;
         }
 
+        string? parameterReason = DescribeConstructorParametersUnsupported(
+            MetadataDiscoverySources.ConstructorParameters,
+            options,
+            shapeType,
+            depth,
+            visited,
+            path);
+
+        if (parameterReason is not null)
+        {
+            return parameterReason;
+        }
+
         foreach (JsonPropertyInfo property in referenced.Properties)
         {
+            string? extensionDataReason = MetadataDiscoverySources.FindUnsupported(
+                MetadataDiscoverySources.ExtensionData,
+                () => property.IsExtensionData
+                    ? DescribeOptionsConverter(options, property.PropertyType, $"{path}{memberPrefix} extension-data member '{property.Name}'")
+                    : null);
+
+            if (extensionDataReason is not null)
+            {
+                return extensionDataReason;
+            }
+
             string? reason = DescribeMemberUnsupported(referenced, property, depth, visited);
 
             if (reason is not null)
             {
-                return reason;
+                return MetadataDiscoverySources.Witness(source, $"{path}{memberPrefix} {reason}");
+            }
+        }
+
+        return null;
+    }
+
+    private static string? DescribeConstructorParametersUnsupported(
+        string source,
+        JsonSerializerOptions options,
+        Type type,
+        int depth,
+        HashSet<Type> visited,
+        string path)
+    {
+        ConstructorInfo[] constructors;
+
+        try
+        {
+            constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException)
+        {
+            return MetadataDiscoverySources.Witness(
+                source,
+                $"{path} constructor metadata is unavailable ({exception.GetType().Name})");
+        }
+
+        foreach (ConstructorInfo constructor in constructors.OrderBy(
+            static constructor => constructor.ToString(),
+            StringComparer.Ordinal))
+        {
+            foreach (ParameterInfo parameter in constructor.GetParameters())
+            {
+                string parameterPath = $"{path} constructor parameter '{parameter.Name}'";
+
+                if (TypeShapes.IsScalar(parameter.ParameterType))
+                {
+                    continue;
+                }
+
+                string? reason = MetadataDiscoverySources.FindUnsupported(
+                    source,
+                    () => DescribeOptionsConverter(options, parameter.ParameterType, parameterPath));
+
+                if (reason is not null)
+                {
+                    return reason;
+                }
+
+                string? nestedReason = DescribeBoundedMetadata(
+                    source,
+                    options,
+                    parameter.ParameterType,
+                    depth + 1,
+                    visited,
+                    parameterPath,
+                    new HashSet<string>(StringComparer.Ordinal));
+
+                if (nestedReason is not null)
+                {
+                    return nestedReason;
+                }
             }
         }
 
@@ -237,15 +513,32 @@ internal static class ConverterClassifier
 
     private static string? DescribeOptionsConverter(JsonSerializerOptions options, Type type, string path)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(type);
+
         foreach (JsonConverter converter in options.Converters)
         {
-            if (converter.CanConvert(type) && !IsKnownConverterType(converter.GetType()))
+            if (converter.CanConvert(type) && !MetadataDiscoverySources.IsKnownConverterType(converter.GetType()))
             {
                 return $"{path} is converted by options converter {converter.GetType().FullName}";
             }
         }
 
         return null;
+    }
+
+    private static string? DescribeResolvedConverter(JsonConverter? converter, string path)
+    {
+        if (converter is null)
+        {
+            return null;
+        }
+
+        Type converterType = converter.GetType();
+
+        return MetadataDiscoverySources.IsKnownConverterType(converterType)
+            ? null
+            : $"{path} is converted by unrecognized converter {converterType.FullName}";
     }
 
     /// <summary>
@@ -290,7 +583,7 @@ internal static class ConverterClassifier
         foreach (JsonConverter converter in options.Converters)
         {
             if (converter is JsonStringEnumConverter stringEnumConverter &&
-                IsKnownConverterType(converter.GetType()) &&
+                MetadataDiscoverySources.IsKnownConverterType(converter.GetType()) &&
                 converter.CanConvert(type))
             {
                 return stringEnumConverter;
@@ -303,10 +596,10 @@ internal static class ConverterClassifier
     private static bool IsStringEnumConverter(JsonConverterAttribute? attribute) =>
         attribute?.ConverterType is Type converterType &&
         typeof(JsonStringEnumConverter).IsAssignableFrom(converterType) &&
-        IsKnownConverterType(converterType);
+        MetadataDiscoverySources.IsKnownConverterType(converterType);
 
     private static bool IsFrameworkStringEnumConverter(JsonConverter? converter) =>
-        converter is JsonStringEnumConverter && IsKnownConverterType(converter.GetType());
+        converter is JsonStringEnumConverter && MetadataDiscoverySources.IsKnownConverterType(converter.GetType());
 
     private static string? DescribeDeclared(JsonConverterAttribute? attribute)
     {
@@ -315,7 +608,7 @@ internal static class ConverterClassifier
             return null;
         }
 
-        return IsKnownConverterType(attribute.ConverterType)
+        return MetadataDiscoverySources.IsKnownConverterType(attribute.ConverterType)
             ? null
             : $"declares unrecognized converter {attribute.ConverterType.FullName}";
     }

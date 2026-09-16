@@ -20,6 +20,14 @@ internal static class ContractDocument
         Root(document)["supported"]?.GetValue<bool>()
         ?? throw new InvalidOperationException("the canonical document root has no supported flag");
 
+    /// <summary>
+    /// The aggregate support state: false when any reachable metadata recorded by the document is
+    /// unsupported, including nested members, nested shapes, enum wire identities, and derived types.
+    /// </summary>
+    public static bool OverallSupported(string document) =>
+        Parse(document)["overallSupported"]?.GetValue<bool>()
+        ?? throw new InvalidOperationException("the canonical document has no overallSupported flag");
+
     public static JsonObject? Member(string document, string memberName)
     {
         JsonArray members = Root(document)["members"]?.AsArray()

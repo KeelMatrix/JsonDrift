@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 
 // R08 - enum representation
@@ -50,4 +52,11 @@ internal enum OrderStage
 internal sealed class StageHolder
 {
     public OrderStage Stage { get; set; }
+}
+
+// R08 - the effective converter is declared on the member, not on the contract options or the enum type
+internal sealed class StateHolderMemberLevel
+{
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public OrderState State { get; set; }
 }

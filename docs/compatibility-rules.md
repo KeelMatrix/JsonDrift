@@ -30,6 +30,10 @@ contained was lost. Members written *in addition* by the later contract are not 
 The JSON comparison is structural: a member is compared by name, JSON token kind, and value. Arrays are
 compared element by element, objects member by member, and numbers by value, so a number that keeps its value
 while changing its serialized form (`5` written as `5.0`) is not a loss (`C01.document-comparison.numbers-by-value`).
+A number is compared by value only while both parses are finite: when a value is outside the range `decimal`
+and finite `double` parsing can represent, the comparison falls back to serialized text, so a magnitude
+difference is never hidden by a rounded or non-finite parse
+(`C01.document-comparison.non-finite-numbers`).
 
 ### Why reading is defined as lossless reading
 
@@ -122,15 +126,51 @@ visited-type set keeps recursive contracts finite.
 | R14f | A collection or array element type declares a custom converter | Unsupported | `List<T>` and `T[]` are resolved to their element type and checked the same way a member's own type is. Proof: `R14.converter.opaque-collection-element`, `R14.converter.opaque-array-element`. |
 | R14g | A dictionary value type declares a custom converter, or an options converter applies to it | Unsupported | Dictionary key and value types are resolved and checked. Proof: `R14.converter.opaque-dictionary-value`, `R14.converter.opaque-options-dictionary-value`. |
 | R14h | A custom converter applies to the root type, or to an element, key, or value type of a root collection | Unsupported | The same reachable-type walk is applied to the root type, so a contract that degrades to a single opaque token, or whose root is a collection of opaque elements, is not reported as supported. Proof: `R14.converter.opaque-root-from-options`, `R14.converter.opaque-root-element`, `R14.converter.opaque-root-dictionary-value`. |
-| R14i | An application converter declares a `System.Text.Json` namespace | Unsupported | Converter provenance is decided by assembly identity, not by namespace. Proof: `R14.converter.opaque-namespace-shadow`. |
+| R14h2 | A converter attribute is declared on the type a member refers to | Unsupported | The declared type of a member is visited like every other reachable type, so a converter on the member's type is reported unsupported whether the root contract is the type itself or a contract that refers to it. Proof: `R14.converter.opaque-type-attribute`. |
+| R14h3 | A member and its declared type both declare a converter | Unsupported | Both declarations are checked, and the first unrecognized converter found is reported. Proof: `R14.converter.opaque-member-type`. |
+| R14i | An application converter declares a `System.Text.Json` namespace | Unsupported | Converter provenance is decided by assembly identity, not by namespace. Proof: `R14.converter.opaque-member-converter`. |
 | R14j | A custom converter is reachable two or three levels below the member | Unsupported | Element, key, and value types and the members of referenced contracts are walked to the traversal budget. Proof: `R14.converter.opaque-nested-element-depth-2`, `R14.converter.opaque-nested-element-depth-3`, `R14.converter.opaque-nested-combination`, `R14.converter.opaque-object-graph-depth-1`, `R14.converter.opaque-object-graph-depth-2`, `R14.converter.opaque-object-graph-depth-3`. |
 | R14k | A converter reachable below the first level produces a lossless round trip | Unsupported | A lossless round trip is not evidence that metadata is classifiable. Proof: `R14.converter.opaque-nested-round-trip.still-unsupported`. |
 | R14l | A member nests deeper than the classification traversal budget | Unsupported | A contract that cannot be walked to its leaves cannot be classified, so exhausting the budget is reported as unsupported rather than as supported. Proof: `R14.converter.traversal-depth-limit`. |
+| R14m | A registered derived type carries a member whose type declares a custom converter | Unsupported | `PolymorphismOptions.DerivedTypes` is part of the reachable metadata: the derived type's own members are walked exactly like the root contract's members. Proof: `R14.converter.opaque-polymorphic-derived-member`. |
+| R14n | A converter registered on the options applies inside a registered derived type, or two derivation levels below a polymorphic member | Unsupported | The walk descends through registered derived types, so a converter that applies to a member of a derived type is found even when neither the base contract nor the member declaration mentions it. Proof: `R14.converter.opaque-polymorphic-options-derived-member`, `R14.converter.opaque-polymorphic-nested-depth-2`. |
+| R14o | A dictionary key type declares a custom converter | Unsupported | Dictionary key types are visited like value types. A key converter the library does not recognize decides what the JSON member names mean, so the contract cannot be classified from metadata even though every key is written as a string. Proof: `R14.converter.opaque-dictionary-key`. |
+| R14p | A constructor parameter type declares a custom converter | Unsupported | Constructor parameter types are part of the binding metadata and are visited by the same walk. Proof: `R14.converter.opaque-constructor-parameter`. |
+| R14q | The value type captured by an extension-data member is converted by an unrecognized converter | Unsupported | An extension-data member captures arbitrary JSON, and the value type it captures with decides what is preserved; an unrecognized converter there is reported unsupported. Proof: `R14.converter.opaque-extension-data-value`. |
+| R14r | The metadata provider assigns a member converter without a converter attribute | Unsupported | A resolver-assigned member converter is declared metadata that can replace a member converter, so it is checked in addition to the converter attributes. Proof: `R14.converter.opaque-member-custom-converter`. |
 | U02 | A run contains compatible changes and one unclassifiable contract | Unsupported | A lossless round trip is not sufficient: a custom converter can round-trip a document and still be unclassifiable, so the result stays unsupported and the assertion fails. Proof: `R14.converter.lossless-round-trip.still-unsupported`, `U02.unsupported.never-green`. |
 
-Every path in R14f-R14l is also recorded as a contract: the classifier reports it unsupported, the canonical
-document does not describe it as supported, and a report that contains it cannot be green. The checks
-listed above assert all three facts for each path.
+Every path in R14f-R14r is also recorded as a contract: the classifier reports it unsupported, the canonical
+document does not describe it as supported in either its own root flag or its aggregate flag, and a report
+that contains it cannot be green. The checks listed above assert all four facts for each path.
+
+### Metadata discovery path inventory
+
+The table below is the inventory of every metadata-resolution path the classifier walks. It is the
+developer-facing record of the single recursive walk: each row names a discovery source, the check that
+proves opaque metadata reached through it is reported unsupported, and how the path is bounded. The gate
+check `D06.discovery-paths.inventory` compares this table with the implemented set and with the executed
+checks, so a discovery source that is added to the walk without an inventory row, a check, or a matching
+path bound fails the matrix instead of passing by default.
+
+| Discovery source | Check that proves it | How the path is bounded or why it cannot hide opaque metadata |
+|---|---|---|
+| `type-converter-attribute` | `R14.converter.opaque-type-attribute` | The converter attribute on the contract type or on any visited type, including a member's declared type. Bounded by the shared visited-type set and the traversal budget. |
+| `member-converter-attribute` | `R14.converter.opaque-member-converter` | The converter attribute on the member. Bounded because a member is visited once per declaring contract. |
+| `member-custom-converter` | `R14.converter.opaque-member-custom-converter` | The converter the metadata provider assigned to a member without an attribute. Checked against framework provenance exactly like an attribute converter. |
+| `options-converters` | `R14.converter.opaque-root-from-options` | Every converter registered in `JsonSerializerOptions.Converters` that can convert a visited type. Bounded by the visited-type set. |
+| `enumerable-element-types` | `R14.converter.opaque-collection-element` | The element type of every visited array or enumerable type. Bounded by the traversal budget. |
+| `dictionary-key-types` | `R14.converter.opaque-dictionary-key` | The key type of every visited dictionary type. Bounded by the traversal budget. |
+| `dictionary-value-types` | `R14.converter.opaque-dictionary-value` | The value type of every visited dictionary type. Bounded by the traversal budget. |
+| `object-members` | `R14.converter.opaque-member-type` | The members of every visited object contract, including members inherited from a base type. Bounded by the traversal budget and the visited-type set. |
+| `extension-data` | `R14.converter.opaque-extension-data-value` | The captured value type of every `[JsonExtensionData]` member. Bounded because the captured type is visited once. |
+| `constructor-parameters` | `R14.converter.opaque-constructor-parameter` | The parameter types of every public constructor on a visited object contract. Bounded by the traversal budget. |
+| `polymorphism-derived-types` | `R14.converter.opaque-polymorphic-derived-member` | Every type registered in `PolymorphismOptions.DerivedTypes`, including derived types registered on a derived type. Bounded by the traversal budget and the visited-type set. |
+| `resolver-chain` | `R14.converter.custom-metadata-resolver` | The identity of the metadata resolver: the default reflection resolver and source-generated contexts are recognized, any other resolver is reported unsupported because it can replace member converters without a declared marker. |
+
+Every source in this inventory is reachable by the same bounded walk. The `object-members` and
+`polymorphism-derived-types` rows are the only recursive ones, and both are bounded by the shared
+visited-type set plus the traversal budget, so a contract graph cannot make the walk unbounded.
 
 ## Measurement harness and document comparison
 
@@ -143,7 +183,9 @@ further by the contract model.
 | R15 | A probe raises an exception the harness does not expect | The probe is recorded as a fault, and every check built on the probe fails | `R15.probe.unexpected-exception` |
 | R15b | A contract rejects a document because a member is required | The probe is recorded as a rejection, not a fault, and the incompatible expectation holds | `R15.probe.contract-rejection` |
 | R15c | A member is already classified unsupported | No shape is resolved for that member, while a classifiable complex member still records its shape | `R15.canonical-document.unsupported-member-shape-skipped` |
+| R15d | Some reachable metadata is unsupported | The document carries an aggregate support state that is unsupported when any reachable metadata is unsupported, so a report layer never infers safety from the root flag alone | `R15.canonical-document.aggregate-support-state` |
 | C01 | A number keeps its value but changes serialized form | Numbers compare by value: `5` and `5.0` are equal, while a changed value or a changed token kind is a difference | `C01.document-comparison.numbers-by-value`, `C01.document-comparison.number-and-token-changes` |
+| C01b | A number is outside the range decimal and finite double parsing can represent | The comparison falls back to serialized text, so `1E-400` and `0`, and `1E+400` and `1E+401`, are differences rather than equal values | `C01.document-comparison.non-finite-numbers` |
 
 ## Canonical contract document
 
@@ -154,6 +196,16 @@ process-specific values. An enum member also records its wire identity - the ser
 framework converter produces, or the numeric value - so a change that only alters an enum member's wire name
 is visible in the document instead of producing identical bytes.
 
+The root record also states two support flags. `root.supported` states whether the contract's own metadata is
+classifiable. `overallSupported` states whether every reachable metadata source is classifiable: it is false
+when any nested member, nested shape, enum wire identity, or registered derived type is unsupported. A report
+layer reads `overallSupported` instead of inferring safety from the root flag, because a contract can have a
+classifiable root and still contain unsupported metadata below it.
+
+A registered derived type is described with its discriminator, its type name, its own support state, and its
+member content, including nested shapes and enum wire identities. A wire-visible change inside a derived type
+therefore changes the canonical document instead of leaving it byte-identical.
+
 | Rule | Property | Evidence |
 |---|---|---|
 | D01 | Repeated canonicalization of the same contract is byte-identical | Three independently created option sets produce the same document (`D01.canonical-document.repeatable`); cross-process equality is checked by `scripts/validate-rule-matrix.ps1`. |
@@ -162,7 +214,9 @@ is visible in the document instead of producing identical bytes.
 | D02 | Equivalent option sets produce identical documents regardless of converter registration order | `D02.canonical-document.options-equivalent`. |
 | D03 | A contract that refers to its own type canonicalizes deterministically | `D03.canonical-document.recursive-type`. |
 | D04 | The counts quoted by the scope documentation are derived from the matrix output rather than counted by hand | `D04.matrix.check-count`, `D04.policy.full-compatible-count`, `D04.policy.unsupported-count`. |
-| D05 | The document records the wire identity of every enum member: its serialized name when the applied framework converter writes strings, or its numeric value | `R08.enum.string-tokens.wire-identity`, `R08.enum.numeric.wire-identity`, `R08.enum.naming-policy.document`, `R08.enum.member-rename.document`. |
+| D05 | The document records the wire identity of every enum member: its serialized name when the applied framework converter writes strings, or its numeric value. The name is produced by the effective converter, so a member-level converter declaration takes precedence over the contract options, and two contracts whose wire is identical record identical identities | `R08.enum.string-tokens.wire-identity`, `R08.enum.numeric.wire-identity`, `R08.enum.naming-policy.document`, `R08.enum.member-rename.document`, `R08.enum.member-level.wire-identity`. |
+| D06 | Every metadata-resolution path the classifier walks is inventoried, covered by an executed check, and bounded, and a discovery source added without coverage fails the gate | `D06.discovery-paths.inventory`, together with the per-path checks listed in the path inventory and `R15.canonical-document.aggregate-support-state`. |
+| D07 | A registered derived type's member content is part of the canonical document | `R10.polymorphism.derived-member.document`, `R14.converter.opaque-polymorphic-derived-member`. |
 
 ## Documented limitations
 
@@ -174,16 +228,20 @@ is visible in the document instead of producing identical bytes.
    metadata change, not a reading failure, unless the reader enables nullable annotation enforcement, in
    which case the same document is rejected. Both measurements are recorded above.
 3. **Converter detection is declaration-based.** Converters are classified from the converter attribute on the
-   member, on the member type, on a reachable element, key, or value type, or on the root type, from
-   converters registered on the options, and from the identity of the metadata resolver. Reachable types are
-   walked to a depth of eight; a contract that nests deeper, or whose referenced metadata cannot be resolved,
-   is reported as unsupported rather than inspected further.
+   member, on the member type, on a reachable element, key, or value type, on a registered derived type or
+   one of its members, or on the root type, from converters the metadata provider assigns to a member, from
+   converters registered on the options, and from the identity of the metadata resolver. The paths are
+   inventoried above and every one of them is covered by an executed check. Reachable types are walked to a
+   depth of eight; a contract that nests deeper, or whose referenced metadata cannot be resolved, is reported
+   as unsupported rather than inspected further.
 4. **Only measured behavior is claimed.** A serializer feature that is not listed in this document has no
    classification and must be reported as unsupported or unclassified until it is measured.
 5. **A string enum member's wire name is read from the serializer.** The name is produced by the framework
-   string-enum converter that the declared metadata applies, which is how an applied naming policy becomes
-   observable. Application converters are never executed, and a string enum member whose wire name cannot be
-   produced is reported as unsupported.
+   string-enum converter that the member's effective declared metadata applies - the converter declared on
+   the member first, then the converter declared on the enum type or registered on the options - which is how
+   an applied naming policy becomes observable. Application converters are never executed, and a string enum
+   member whose wire name cannot be produced is reported as unsupported; that member keeps the root contract
+   unsupported through the aggregate support state.
 6. **Baseline storage, limits, and version migration are not covered here.** This document defines
    classification semantics only.
 

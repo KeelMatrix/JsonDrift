@@ -20,6 +20,7 @@ internal static class HarnessRules
 
         AddProbeExceptionChecks(results, reflection, injectingOptions);
         AddCanonicalDocumentChecks(results, reflection);
+        AddAggregateSupportChecks(results, reflection);
         AddComparisonChecks(results);
 
         return results;
@@ -97,11 +98,52 @@ internal static class HarnessRules
             !opaqueSupported && !opaqueHasShape && classifiableSupported && classifiableHasShape));
     }
 
+    /// <summary>
+    /// The aggregate support state is part of the document, so a report layer never has to infer that a
+    /// contract is safe from the root flag while a nested contract is unsupported.
+    /// </summary>
+    private static void AddAggregateSupportChecks(List<CheckOutcome> results, JsonSerializerOptions reflection)
+    {
+        string opaque = ContractCanonicalizer.Canonicalize(reflection.GetTypeInfo(typeof(MixedOpaqueContract)));
+        string supported = ContractCanonicalizer.Canonicalize(reflection.GetTypeInfo(typeof(OrderEnvelope)));
+
+        bool opaqueAggregate = ContractDocument.OverallSupported(opaque);
+        bool supportedAggregate = ContractDocument.OverallSupported(supported);
+
+        results.Add(Check.Assert(
+            "R15.canonical-document.aggregate-support-state",
+            "Measurement harness",
+            "one contract has an unsupported member and one contract is fully classifiable",
+            "unsupported contract overall=Unsupported; classifiable contract overall=Supported",
+            $"mixedContract: root={(ContractDocument.RootSupported(opaque) ? "Supported" : "Unsupported")}, overall={(opaqueAggregate ? "Supported" : "Unsupported")}; classifiableContract: overall={(supportedAggregate ? "Supported" : "Unsupported")}",
+            $"mixedDocumentLength={opaque.Length}; classifiableDocumentLength={supported.Length}",
+            !opaqueAggregate && supportedAggregate));
+
+        string numeric = ContractCanonicalizer.Canonicalize(reflection.GetTypeInfo(typeof(ShiftRootNumeric)));
+        string text = ContractCanonicalizer.Canonicalize(reflection.GetTypeInfo(typeof(ShiftRootText)));
+
+        results.Add(Check.Assert(
+            "R10.polymorphism.derived-member.document",
+            "Polymorphic type metadata change",
+            "a registered derived type keeps its discriminator and member names but changes one member's token kind",
+            "canonical documents differ and both contracts are supported",
+            $"identical={string.Equals(numeric, text, StringComparison.Ordinal)}",
+            $"earlierRecordsNumericAmount={numeric.Contains("\"tokenKind\": \"number\"", StringComparison.Ordinal)}; " +
+            $"laterRecordsStringAmount={text.Contains("\"tokenKind\": \"string\"", StringComparison.Ordinal)}; " +
+            $"earlierOverall={(ContractDocument.OverallSupported(numeric) ? "Supported" : "Unsupported")}; " +
+            $"laterOverall={(ContractDocument.OverallSupported(text) ? "Supported" : "Unsupported")}",
+            !string.Equals(numeric, text, StringComparison.Ordinal) &&
+            ContractDocument.OverallSupported(numeric) &&
+            ContractDocument.OverallSupported(text)));
+    }
+
     private static void AddComparisonChecks(List<CheckOutcome> results)
     {
         IReadOnlyList<string> sameValue = JsonSubsetComparer.Compare("{\"a\":5}", "{\"a\":5.0}");
         IReadOnlyList<string> changedValue = JsonSubsetComparer.Compare("{\"a\":5}", "{\"a\":6}");
         IReadOnlyList<string> changedToken = JsonSubsetComparer.Compare("{\"a\":5}", "{\"a\":\"5\"}");
+        IReadOnlyList<string> largeScale = JsonSubsetComparer.Compare("{\"a\":1E+400}", "{\"a\":1E+401}");
+        IReadOnlyList<string> smallScale = JsonSubsetComparer.Compare("{\"a\":1E-400}", "{\"a\":0}");
 
         results.Add(Check.Assert(
             "C01.document-comparison.numbers-by-value",
@@ -120,5 +162,15 @@ internal static class HarnessRules
             $"valueChange={changedValue.Count}; tokenChange={changedToken.Count}",
             $"5 versus 6: [{string.Join(", ", changedValue)}]; 5 versus \"5\": [{string.Join(", ", changedToken)}]",
             changedValue.Count == 1 && changedToken.Count == 1));
+
+        results.Add(Check.Assert(
+            "C01.document-comparison.non-finite-numbers",
+            "Document comparison",
+            "a number is outside the range both decimal and finite double parsing can represent",
+            "differences=1 for each",
+            $"aboveDoubleRange={largeScale.Count}; belowDecimalRange={smallScale.Count}",
+            $"1E+400 versus 1E+401: [{string.Join(", ", largeScale)}]; 1E-400 versus 0: [{string.Join(", ", smallScale)}]",
+            largeScale.Count == 1 && smallScale.Count == 1));
+
     }
 }

@@ -25,6 +25,7 @@ internal static class MatrixReport
         checks.AddRange(HarnessRules.Run());
         checks.AddRange(DeterminismRules.Run());
         checks.AddRange(MatrixSummary.Run(checks));
+        checks.AddRange(InventoryRules.Run(checks));
         return checks;
     }
 

@@ -28,6 +28,7 @@ internal static class EnumRules
         JsonTypeInfo extendedState = numeric.GetTypeInfo(typeof(StateHolderExtended));
         JsonTypeInfo camelStage = camelCase.GetTypeInfo(typeof(StageHolder));
         JsonTypeInfo snakeStage = snakeCase.GetTypeInfo(typeof(StageHolder));
+        JsonTypeInfo memberLevelState = text.GetTypeInfo(typeof(StateHolderMemberLevel));
 
         var numericValue = new StateHolderNumeric { State = OrderState.Shipped };
         var textValue = new StateHolderNumeric { State = OrderState.Shipped };
@@ -82,8 +83,46 @@ internal static class EnumRules
             WireProbe.Across(numericValue, numericState, numericState)));
 
         AddWireIdentityChecks(results, numericState, textState, renamedState, camelStage, snakeStage);
+        AddMemberLevelWireIdentityCheck(results, memberLevelState);
 
         return results;
+    }
+
+    /// <summary>
+    /// A member-level converter declaration is the member's effective converter, so the recorded wire name
+    /// must come from it rather than from the contract's options or from the enum type. Two contracts whose
+    /// wire is identical therefore produce the same recorded identity, and a member that writes strings
+    /// inside otherwise numeric options is recorded as strings.
+    /// </summary>
+    private static void AddMemberLevelWireIdentityCheck(List<CheckOutcome> results, JsonTypeInfo memberLevelState)
+    {
+        JsonSerializerOptions numeric = JsonContractOptions.Reflection();
+        string memberDocument = ContractCanonicalizer.Canonicalize(memberLevelState);
+        string numericDocument = ContractCanonicalizer.Canonicalize(numeric.GetTypeInfo(typeof(StateHolderNumeric)));
+        string typeLevelDocument = ContractCanonicalizer.Canonicalize(
+            JsonContractOptions.Reflection().GetTypeInfo(typeof(PriorityHolder)));
+
+
+        bool memberRecordsName =
+            memberDocument.Contains("\"Shipped\": \"Shipped\"", StringComparison.Ordinal) &&
+            !memberDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal);
+
+        bool recordsTheWireTheMemberActuallyUses =
+            memberRecordsName &&
+            typeLevelDocument.Contains("\"High\": \"High\"", StringComparison.Ordinal) &&
+            numericDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal);
+
+        results.Add(Check.Assert(
+            "R08.enum.member-level.wire-identity",
+            "Enum representation change",
+            "an enum member declares a framework string-enum converter while the contract options write numbers",
+            "canonical document records the member's effective wire name and matches the type-level path for the same wire",
+            recordsTheWireTheMemberActuallyUses
+                ? "canonical=MemberEffectiveConverterRecorded"
+                : "canonical=MemberEffectiveConverterIgnored",
+            $"memberLevelRecordsName={memberRecordsName}; numericPathRecordsValue={numericDocument.Contains("\"Shipped\": 1", StringComparison.Ordinal)}; " +
+            $"typeLevelRecordsName={typeLevelDocument.Contains("\"High\": \"High\"", StringComparison.Ordinal)}",
+            recordsTheWireTheMemberActuallyUses));
     }
 
     /// <summary>
