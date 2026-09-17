@@ -50,6 +50,7 @@ internal static class InventoryRules
 
         yield return OptionAllowlistCheck(lines);
         yield return AttributeAllowlistCheck(lines);
+        yield return AttributeDeclarationCoverageCheck(lines);
         yield return ConverterConfigurationAllowlistCheck(lines);
     }
 
@@ -146,6 +147,111 @@ internal static class InventoryRules
             $"acceptedButNotAllowlisted=[{string.Join(", ", acceptedButNotAllowlisted)}]",
             passed);
     }
+
+    /// <summary>
+    /// Binds the declared-attribute walk to every attribute type in the loaded System.Text.Json assembly.
+    /// The runtime enumeration is the boundary: each type must have an inventoried measured fact or an
+    /// explicit documented exclusion. A new framework declaration therefore fails this gate until a probe or
+    /// an evidence-backed exclusion is added.
+    /// </summary>
+    private static CheckOutcome AttributeDeclarationCoverageCheck(string[] lines)
+    {
+        var documented = DocumentationTables.ReadTable(lines, DocumentationTables.AttributeCoverageHeading)
+            .Where(static cells => cells.Length >= 3 && !string.Equals(cells[1].Trim(), "Status", StringComparison.OrdinalIgnoreCase))
+            .Select(static cells => new DeclarationCoverageRow(
+                Clean(cells[0]),
+                Clean(cells[1]),
+                Clean(cells[2])))
+            .ToArray();
+
+        string[] runtime = DeclaredAttributeFacts.RuntimeDeclarationTypes
+            .Select(TypeShapes.TypeName)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] inventoried = DeclaredAttributeFacts.InventoriedValues
+            .Select(static fact => fact.AttributeType)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] excluded = DeclaredAttributeFacts.ExplicitExclusions
+            .Select(static exclusion => TypeShapes.TypeName(exclusion.Type))
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] covered = inventoried.Concat(excluded).Distinct(StringComparer.Ordinal).ToArray();
+
+        string[] runtimeWithoutCoverage = runtime.Where(name => !covered.Contains(name, StringComparer.Ordinal)).ToArray();
+        string[] coverageOutsideRuntime = covered.Where(name => !runtime.Contains(name, StringComparer.Ordinal)).ToArray();
+        string[] duplicateDocumentation = documented
+            .GroupBy(static row => row.TypeName, StringComparer.Ordinal)
+            .Where(static group => group.Count() != 1)
+            .Select(static group => group.Key)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] runtimeWithoutDocumentation = runtime
+            .Where(name => documented.Count(row => string.Equals(row.TypeName, name, StringComparison.Ordinal)) != 1)
+            .ToArray();
+        string[] documentationOutsideRuntime = documented
+            .Where(row => !runtime.Contains(row.TypeName, StringComparer.Ordinal))
+            .Select(static row => row.TypeName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] statusMismatches = runtime
+            .Where(name => documented.FirstOrDefault(row => string.Equals(row.TypeName, name, StringComparison.Ordinal)) is DeclarationCoverageRow row &&
+                !string.Equals(row.Status, inventoried.Contains(name, StringComparer.Ordinal) ? "Inventoried" : "Excluded", StringComparison.Ordinal))
+            .ToArray();
+        string[] missingEvidence = documented
+            .Where(static row => row.Status.Length == 0 || row.Evidence.Length == 0)
+            .Select(static row => row.TypeName)
+            .ToArray();
+        string[] exclusionReasonMismatches = DeclaredAttributeFacts.ExplicitExclusions
+            .Select(exclusion =>
+            {
+                string typeName = TypeShapes.TypeName(exclusion.Type);
+                DeclarationCoverageRow? row = documented.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TypeName, typeName, StringComparison.Ordinal));
+                return row is not null &&
+                    string.Equals(row.Status, "Excluded", StringComparison.Ordinal) &&
+                    string.Equals(row.Evidence, exclusion.Reason, StringComparison.Ordinal)
+                    ? null
+                    : typeName;
+            })
+            .Where(static name => name is not null)
+            .Select(static name => name!)
+            .ToArray();
+        string[] invalidExclusions = DeclaredAttributeFacts.ExplicitExclusions
+            .Where(static exclusion => !exclusion.Type.IsAbstract)
+            .Select(static exclusion => TypeShapes.TypeName(exclusion.Type))
+            .ToArray();
+
+        bool passed =
+            runtimeWithoutCoverage.Length == 0 &&
+            coverageOutsideRuntime.Length == 0 &&
+            duplicateDocumentation.Length == 0 &&
+            runtimeWithoutDocumentation.Length == 0 &&
+            documentationOutsideRuntime.Length == 0 &&
+            statusMismatches.Length == 0 &&
+            missingEvidence.Length == 0 &&
+            exclusionReasonMismatches.Length == 0 &&
+            invalidExclusions.Length == 0;
+
+        return Check.Assert(
+            "D06.allowlist.attribute-declaration-coverage",
+            "Runtime declaration coverage",
+            "every System.Text.Json.Serialization attribute type in the loaded System.Text.Json assembly is inventoried with measured facts or explicitly excluded with a measured reason",
+            "runtime=covered=documented, exclusions=measured",
+            passed ? "runtime=covered=documented" : $"runtime={runtime.Length}, inventoried={inventoried.Length}, excluded={excluded.Length}, documented={documented.Length}",
+            $"runtimeWithoutCoverage=[{string.Join(", ", runtimeWithoutCoverage)}]; coverageOutsideRuntime=[{string.Join(", ", coverageOutsideRuntime)}]; " +
+            $"duplicateDocumentation=[{string.Join(", ", duplicateDocumentation)}]; runtimeWithoutDocumentation=[{string.Join(", ", runtimeWithoutDocumentation)}]; " +
+            $"documentationOutsideRuntime=[{string.Join(", ", documentationOutsideRuntime)}]; statusMismatches=[{string.Join(", ", statusMismatches)}]; " +
+            $"missingEvidence=[{string.Join(", ", missingEvidence)}]; exclusionReasonMismatches=[{string.Join(", ", exclusionReasonMismatches)}]; " +
+            $"invalidExclusions=[{string.Join(", ", invalidExclusions)}]; runtime=[{string.Join(", ", runtime)}]; inventoried=[{string.Join(", ", inventoried)}]; excluded=[{string.Join(", ", excluded)}]",
+            passed);
+    }
+
+    private static string Clean(string value) => value.Trim().Trim('`').Trim();
+
+    private sealed record DeclarationCoverageRow(string TypeName, string Status, string Evidence);
 
     private static CheckOutcome ConverterConfigurationAllowlistCheck(string[] lines)
     {

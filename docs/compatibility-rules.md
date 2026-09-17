@@ -172,7 +172,7 @@ the run applies is checked against the catalogue by `D06.classification-rules.ob
 | `unsupported.scalar-unlisted` | Unsupported | The recorded scalar type is not on the scalar allowlist. |
 | `unsupported.enum-wire-unresolved` | Unsupported | The wire name of an enum member could not be produced from the recorded framework converter. |
 | `unsupported.option-unlisted` | Unsupported | A recorded `JsonSerializerOptions` value is not one of the values the committed checks are measured under. |
-| `unsupported.attribute-unlisted` | Unsupported | A declared `JsonAttribute` or one of its argument values is not on the measured declared-attribute allowlist. |
+| `unsupported.attribute-unlisted` | Unsupported | A declared `System.Text.Json.Serialization` serialization attribute or one of its argument values is not on the measured declared-attribute allowlist. |
 | `unsupported.converter-configuration-unlisted` | Unsupported | An allowlisted framework enum converter's probed observable configuration is not on the measured converter-configuration allowlist. |
 
 The allowlists the supported rules rest on are compared with the lists in code by
@@ -282,21 +282,68 @@ through the behaviour of a probe, and every option family keeps a value the adve
 
 ### Declared serialization attributes
 
-The traversal enumerates declared reflection attributes on every recorded contract type and member, then
-filters that enumeration to attributes assignable to `System.Text.Json.Serialization.JsonAttribute`. The
-recorded fact includes the attribute type and every constructor/named argument value. The canonical document
-records the same facts in type and member records, and `unsupported.attribute-unlisted` denies any declaration
-or argument value outside the measured allowlist. The allowlist is derived from `DeclaredAttributeFacts`
-measured surfaces and is checked against the facts accepted by the executed matrix in
-`D06.allowlist.attribute-values`.
+The traversal enumerates declared reflection attributes on every recorded contract type, constructor, member,
+and enum field. Its predicate is runtime-derived: it includes every concrete or abstract class assignable to
+`System.Attribute` in the `System.Text.Json.Serialization` namespace of the loaded `System.Text.Json`
+assembly. It does not use `JsonAttribute` as a base-type filter, so declarations such as `JsonConstructor`
+and `JsonStringEnumMemberName` cannot be silently skipped when their base hierarchy differs. The recorded
+fact includes the attribute type and every constructor/named argument value. The canonical document records
+the same facts on the relevant type, constructor, member, or enum-member record, and
+`unsupported.attribute-unlisted` denies any declaration or argument value outside the measured allowlist.
+The allowlist is derived from `DeclaredAttributeFacts` measured surfaces and is checked against the facts
+accepted by the executed matrix in `D06.allowlist.attribute-values`.
+
+The runtime declaration coverage gate enumerates the loaded assembly on every run. Each discovered declaration
+type is either inventoried on a committed measured surface or explicitly excluded with a measured reason;
+the current runtime inventory excludes only the abstract `JsonAttribute` base (`abstract=True; the base class
+cannot be applied directly to a contract declaration`). The other 16 declaration types, including
+`JsonConstructorAttribute` and `JsonStringEnumMemberNameAttribute`, are inventoried. A declaration added by a
+future `System.Text.Json` runtime fails `D06.allowlist.attribute-declaration-coverage` until it has one of
+those two evidence-backed dispositions.
+
+### Runtime System.Text.Json declaration coverage
+
+| Declaration type | Status | Measured evidence or exclusion reason |
+|---|---|---|
+| `System.Text.Json.Serialization.JsonAttribute` | Excluded | abstract=True; the base class cannot be applied directly to a contract declaration |
+| `System.Text.Json.Serialization.JsonConstructorAttribute` | Inventoried | Constructor selection is recorded and denied; redundant and two-constructor binding probes execute. |
+| `System.Text.Json.Serialization.JsonConverterAttribute` | Inventoried | Type and member converter declarations are recorded and measured. |
+| `System.Text.Json.Serialization.JsonDerivedTypeAttribute` | Inventoried | Polymorphic registrations and discriminator arguments are recorded and measured. |
+| `System.Text.Json.Serialization.JsonExtensionDataAttribute` | Inventoried | Extension-data declarations are recorded and measured. |
+| `System.Text.Json.Serialization.JsonIgnoreAttribute` | Inventoried | Ignore declarations and condition arguments are recorded and measured. |
+| `System.Text.Json.Serialization.JsonIncludeAttribute` | Inventoried | A private included member is recorded and denied. |
+| `System.Text.Json.Serialization.JsonNumberHandlingAttribute` | Inventoried | Strict is accepted; WriteAsString is recorded and denied. |
+| `System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute` | Inventoried | Populate on a collection member is recorded and denied. |
+| `System.Text.Json.Serialization.JsonPolymorphicAttribute` | Inventoried | Polymorphism declarations and discriminator arguments are recorded and measured. |
+| `System.Text.Json.Serialization.JsonPropertyNameAttribute` | Inventoried | Property-name declarations are recorded and measured. |
+| `System.Text.Json.Serialization.JsonPropertyOrderAttribute` | Inventoried | A property-order declaration is recorded and denied. |
+| `System.Text.Json.Serialization.JsonRequiredAttribute` | Inventoried | Required-member declarations are recorded and measured. |
+| `System.Text.Json.Serialization.JsonSerializableAttribute` | Inventoried | The source-generation context declaration is inventoried from its measured context surface. |
+| `System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute` | Inventoried | The source-generation context options declaration is inventoried from its measured context surface. |
+| `System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute` | Inventoried | A member wire-name change is executed, recorded, and denied. |
+| `System.Text.Json.Serialization.JsonUnmappedMemberHandlingAttribute` | Inventoried | Disallow on a type is recorded and denied. |
+
+The default reflection and source-generated paths were also measured against the external
+`System.Runtime.Serialization` declarations `DataContractAttribute`, `DataMemberAttribute`, and
+`IgnoreDataMemberAttribute`. They contribute no serialization facts and leave a matched wire unchanged, so
+they are not treated as System.Text.Json declarations; a custom resolver that applies them is outside this
+probe's default metadata source and is already unsupported under the resolver-modifier rule. `[Serializable]`
+was separately measured as irrelevant: it contributes no serialization fact and leaves the wire unchanged.
+The walk separately measures effective metadata such as requiredness and source-generated options through
+`JsonTypeInfo`. No other outside-namespace declaration is claimed here without a measurement.
 
 The measured accepted declarations include the existing property-name, requiredness, extension-data,
 polymorphism, and allowlisted enum-converter attributes, plus `JsonNumberHandling(Strict)` and
 `JsonIgnore(Condition = Never)`. `JsonNumberHandling(WriteAsString)` is deliberately unlisted: both type-level
 and member-level declarations are recorded, change the canonical document, change the wire token, and are
 denied. `JsonIgnore(Condition = WhenWritingDefault)` is likewise recorded, changes the document, and is denied.
-The executed source-generated checks prove that the same declared facts are read for reflection and
-source-generated `JsonTypeInfo`.
+`JsonConstructor` is also deliberately unlisted: regardless of its attribute base hierarchy, a redundant declaration changes the canonical document and a
+two-constructor declaration changes binding from `Quantity = 1` to `Quantity = 7`, so both are denied even when
+the wire is unchanged in the redundant case. `JsonInclude`, `JsonObjectCreationHandling`, `JsonPropertyOrder`,
+`JsonUnmappedMemberHandling`, and `JsonStringEnumMemberName` are recorded and denied by executed probes; the
+last changes the wire name from `Created` to `created-order`. The executed source-generated constructor probe
+(`R13.source-generation.constructor-attribute`) records the `JsonConstructor` fact in both reflection and
+source-generated documents, observes the generated binding of `Quantity = 7`, and denies both documents.
 
 ### Allowlisted enum converter configuration
 
@@ -345,6 +392,15 @@ case must fail closed. The recorded outcomes are:
 | `A01.adversarial.attributes-number-handling-type` | A type-level `[JsonNumberHandling(WriteAsString)]` declaration | Unsupported |
 | `A01.adversarial.attributes-number-handling-member` | A member-level `[JsonNumberHandling(WriteAsString)]` declaration | Unsupported |
 | `A01.adversarial.attributes-ignore-condition` | A member-level `[JsonIgnore(Condition = WhenWritingDefault)]` declaration | Unsupported |
+| `A01.adversarial.attributes-constructor-redundant` | A redundant `[JsonConstructor]` declaration on a type with one public parameterized constructor | Unsupported |
+| `A01.adversarial.attributes-constructor-binding` | A `[JsonConstructor]` declaration that changes selection between two public constructors | Unsupported |
+| `A01.adversarial.attributes-include` | A private member included by `[JsonInclude]` | Unsupported |
+| `A01.adversarial.attributes-object-creation-handling` | A collection member declares `[JsonObjectCreationHandling(Populate)]` | Unsupported |
+| `A01.adversarial.attributes-property-order` | A member declares `[JsonPropertyOrder]` | Unsupported |
+| `A01.adversarial.attributes-string-enum-member-name` | An enum member declares `[JsonStringEnumMemberName]` and changes its string wire name | Unsupported |
+| `A01.adversarial.attributes-unmapped-member-handling` | A type declares `[JsonUnmappedMemberHandling(Disallow)]` | Unsupported |
+| `A01.adversarial.attributes-runtime-serialization` | `System.Runtime.Serialization` declarations are measured as irrelevant to the default reflection and source-generated System.Text.Json contracts | Supported |
+| `A01.adversarial.attributes-serializable-irrelevant` | `[Serializable]` is measured as irrelevant to the System.Text.Json contract | Supported |
 | `A01.adversarial.converter-configuration-unlisted` | An allowlisted `JsonNumberEnumConverter<TEnum>` configuration outside the measured probe set | Unsupported |
 
 ### Metadata discovery path inventory
@@ -363,7 +419,7 @@ matching path binding fails the matrix instead of passing by default.
 | `member-custom-converter` | `R14.converter.opaque-member-custom-converter` | The converter the metadata provider assigned to a member without an attribute. Checked against framework provenance exactly like an attribute converter. |
 | `options-converters` | `R14.converter.opaque-root-from-options` | Every converter registered in `JsonSerializerOptions.Converters`, recorded in declared converter type order. Bounded by the visited-type set. |
 | `options-settings` | `A01.adversarial.options-number-handling` | The value of every `JsonSerializerOptions` setting that changes the wire or the reading, recorded once per contract in a fixed family order and compared with the option allowlist. Bounded because every family is read from the same option set for every visited node, and a value the allowlist does not name is reported unsupported. |
-| `declared-attributes` | `A01.adversarial.attributes-number-handling-type` | Every declared attribute assignable to `System.Text.Json.Serialization.JsonAttribute` is enumerated from the contract type and each recorded member, then filtered by the measured attribute allowlist. Reflection is the source for both reflection and source-generated `JsonTypeInfo`; the source-generated limitation is documented below. |
+| `declared-attributes` | `A01.adversarial.attributes-number-handling-type` | Every `System.Text.Json.Serialization` attribute is enumerated at runtime from each recorded type, constructor, member, and enum field, then checked against the measured attribute allowlist. Reflection supplies the declarations for both reflection and source-generated `JsonTypeInfo`; source-generated context behavior is executed separately, and its limitation is documented below. |
 | `converter-configuration` | `R08.enum.converter-configuration` | Only allowlisted framework enum converters are probed. Their integer-token acceptance is derived by executing a representative read and compared with the measured configuration allowlist; unknown and opaque converters remain unsupported. |
 | `enumerable-element-types` | `R14.converter.opaque-collection-element` | The element type of every visited array or enumerable type, resolved from the framework element type with the generic shape as the fallback. Bounded by the traversal budget. |
 | `dictionary-key-types` | `R14.converter.opaque-dictionary-key` | The key type of every visited dictionary type. Bounded by the traversal budget. |
@@ -442,7 +498,7 @@ byte-identical.
 | D03 | A contract that refers to its own type canonicalizes deterministically | `D03.canonical-document.recursive-type`. |
 | D04 | The counts quoted by the scope documentation are derived from the matrix output rather than counted by hand | `D04.matrix.check-count`, `D04.policy.full-compatible-count`, `D04.policy.unsupported-count`. |
 | D05 | The document records the wire identity of every enum member: its serialized name when the applied framework converter writes strings, or its numeric value. The name is produced by the effective converter, so a member-level converter declaration takes precedence over the contract options, and two contracts whose wire is identical record identical identities | `R08.enum.string-tokens.wire-identity`, `R08.enum.numeric.wire-identity`, `R08.enum.naming-policy.document`, `R08.enum.member-rename.document`, `R08.enum.member-level.wire-identity`. |
-| D06 | Every metadata-resolution path the classifier walks is inventoried, documented, covered by an executed check, and bounded; every classification rule, node kind, and allowlist of the deny-by-default classifier - including serializer options, declared attributes, and converter configurations - is bound to this document and to the values the executed checks were accepted under; and a source, node kind, or rule added without coverage fails the gate | `D06.discovery-paths.inventory`, `D06.classification-rules.documented`, `D06.classification-rules.observed`, `D06.allowlist.documented`, `D06.allowlist.verified`, `D06.allowlist.option-values`, `D06.allowlist.attribute-values`, `D06.allowlist.converter-configurations`, together with the per-path checks listed in the path inventory. |
+| D06 | Every metadata-resolution path the classifier walks is inventoried, documented, covered by an executed check, and bounded; every classification rule, node kind, and allowlist of the deny-by-default classifier - including serializer options, runtime-enumerated declared attributes, and converter configurations - is bound to this document and to the values the executed checks were accepted under; and a source, node kind, rule, or loaded System.Text.Json declaration added without coverage fails the gate | `D06.discovery-paths.inventory`, `D06.classification-rules.documented`, `D06.classification-rules.observed`, `D06.allowlist.documented`, `D06.allowlist.verified`, `D06.allowlist.option-values`, `D06.allowlist.attribute-values`, `D06.allowlist.attribute-declaration-coverage`, `D06.allowlist.converter-configurations`, together with the per-path checks listed in the path inventory. |
 | D07 | A registered derived type's member content, element, key, and value types, and nested registrations are part of the canonical document | `R10.polymorphism.derived-member.document`, `R14.converter.opaque-polymorphic-derived-member`, `R14.converter.derived-shape.document`. |
 | D08 | The canonical document records serializer option values, declared JSON attributes, and probed enum converter configuration, so a change of an accepted recorded fact is a document difference instead of a pair of byte-identical documents | `D08.canonical-document.options-recorded`, `D08.canonical-document.attributes-recorded`, `R08.enum.converter-configuration`. |
 
@@ -481,11 +537,14 @@ byte-identical.
    recorded contract metadata: it does not run the application's converters, and the only serializer calls it
    performs while recording are the allowlisted framework enum converter's wire-name write and its representative
    integer-token read. `JsonTypeInfo` does not expose reflection-declared attributes for a source-generated
-   context. The matrix therefore reads the declared `JsonAttribute` facts from the generated contract type and
-   its reflected members, and executes one check per new attribute family for both reflection and source-generated
-   metadata. Attributes declared only on the context itself (such as `JsonSourceGenerationOptions` and
-   `JsonSerializable`) are not treated as contract-type declarations; their effective option values are measured
-   through `JsonTypeInfo.Options` instead.
+   context. The matrix therefore reads the runtime-enumerated System.Text.Json declaration facts from the
+   generated contract type, its constructors, reflected members, and enum fields, and executes reflection and
+   source-generated probes for the constructor declaration. The context's `JsonSourceGenerationOptions` and
+   `JsonSerializable` declarations are inventoried from the measured context surface, while their effective
+   generated options and registered-contract behavior are measured through `JsonTypeInfo.Options` and the
+   generated type infos. This distinction documents the metadata source limitation honestly: reflection is the
+   declaration source, and source generation proves the resulting effective contract behavior rather than
+   exposing a separate declaration list.
 7. **Baseline storage, limits, and version migration are not covered here.** This document defines
    classification semantics only.
 

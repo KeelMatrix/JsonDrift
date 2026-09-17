@@ -146,6 +146,7 @@ internal static class MetadataTraversal
             recorded.Add(type, node);
 
             node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(type, path));
+            node.DeclaredAttributes.AddRange(RecordEnumMemberAttributes(type, path));
             node.Resolver = RecordResolver(path, info.Options);
             RecordOptions(node, info.Options);
             RecordConverterFacts(node, type, info.Options, path);
@@ -181,6 +182,7 @@ internal static class MetadataTraversal
             };
 
             node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(type, path));
+            node.DeclaredAttributes.AddRange(RecordEnumMemberAttributes(type, path));
             node.Resolver = RecordResolver(path, known?.Options ?? options);
             RecordOptions(node, known?.Options ?? options);
 
@@ -276,7 +278,7 @@ internal static class MetadataTraversal
 
             try
             {
-                constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+                constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             }
             catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException)
             {
@@ -290,6 +292,9 @@ internal static class MetadataTraversal
                 static constructor => constructor.ToString(),
                 StringComparer.Ordinal))
             {
+                string constructorPath = $"{node.Path} constructor '{constructor}'";
+                node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(constructor, constructorPath));
+
                 foreach (ParameterInfo parameter in constructor.GetParameters())
                 {
                     node.Edges.Add(new RecordedEdge(
@@ -297,7 +302,7 @@ internal static class MetadataTraversal
                         Visit(
                             parameter.ParameterType,
                             MetadataSourceKind.ConstructorParameters,
-                            $"{node.Path} constructor parameter '{parameter.Name}'",
+                            $"{constructorPath} parameter '{parameter.Name}'",
                             depth + 1)));
                 }
             }
@@ -373,7 +378,7 @@ internal static class MetadataTraversal
         }
 
         /// <summary>
-        /// Enumerates reflection-declared JsonAttribute instances and records every one before any
+        /// Enumerates reflection-declared System.Text.Json serialization attributes and records every one before any
         /// allowlist filtering. A source-generated JsonTypeInfo does not expose this declaration set itself;
         /// the same reflection lookup against its contract type/member is therefore the measured source and
         /// the limitation is documented in the rule matrix.
@@ -398,6 +403,23 @@ internal static class MetadataTraversal
         {
             TraversalInventory.Ledger.RecordSource(MetadataSourceKind.DeclaredAttributes);
             return DeclaredAttributeFacts.ReadType(type, path);
+        }
+
+        private static RecordedAttributeFact[] RecordEnumMemberAttributes(Type type, string path)
+        {
+            if (!type.IsEnum)
+            {
+                return Array.Empty<RecordedAttributeFact>();
+            }
+
+            TraversalInventory.Ledger.RecordSource(MetadataSourceKind.DeclaredAttributes);
+            return type
+                .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .OrderBy(static field => field.Name, StringComparer.Ordinal)
+                .SelectMany(field => DeclaredAttributeFacts.ReadMember(
+                    field,
+                    $"{path} enum member '{field.Name}'"))
+                .ToArray();
         }
 
         private static RecordedResolverFact RecordResolver(string path, JsonSerializerOptions options)

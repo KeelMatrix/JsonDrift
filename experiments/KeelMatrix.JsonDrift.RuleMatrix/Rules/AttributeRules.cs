@@ -7,8 +7,8 @@ using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 namespace KeelMatrix.JsonDrift.RuleMatrix.Rules;
 
 /// <summary>
-/// F9/F9b: declared JsonAttribute facts are enumerated from reflection, carried into the document, and
-/// denied unless their exact declaration and argument values are on the measured allowlist.
+/// Declared System.Text.Json serialization facts are enumerated from reflection, carried into the document,
+/// and denied unless their exact declaration and argument values are on the measured allowlist.
 /// </summary>
 internal static class AttributeRules
 {
@@ -26,9 +26,35 @@ internal static class AttributeRules
             typeof(WriteAsStringNumberMember),
             "member-level [JsonNumberHandling(WriteAsString)]");
         yield return UnlistedIgnoreCondition();
+        yield return RedundantConstructorAttribute();
+        yield return ConstructorAttributeChangesBinding();
+        yield return UnlistedDeclaration(
+            "A01.adversarial.attributes-include",
+            typeof(IncludeAttributeHolder),
+            "a private member is included by [JsonInclude]",
+            "JsonIncludeAttribute");
+        yield return UnlistedDeclaration(
+            "A01.adversarial.attributes-object-creation-handling",
+            typeof(ObjectCreationHandlingAttributeHolder),
+            "a collection member declares [JsonObjectCreationHandling(Populate)]",
+            "JsonObjectCreationHandlingAttribute");
+        yield return UnlistedDeclaration(
+            "A01.adversarial.attributes-property-order",
+            typeof(PropertyOrderAttributeHolder),
+            "a member declares [JsonPropertyOrder]",
+            "JsonPropertyOrderAttribute");
+        yield return UnlistedDeclaration(
+            "A01.adversarial.attributes-unmapped-member-handling",
+            typeof(UnmappedMemberHandlingAttributeHolder),
+            "a type declares [JsonUnmappedMemberHandling(Disallow)]",
+            "JsonUnmappedMemberHandlingAttribute");
+        yield return StringEnumMemberNameAttribute();
+        yield return ExternalRuntimeSerializationAttributes();
+        yield return SerializableAttributeIsIrrelevant();
         yield return AcceptedAttributesRecorded();
         yield return SourceGeneratedNumberHandling();
         yield return SourceGeneratedIgnoreCondition();
+        yield return SourceGeneratedConstructorAttribute();
     }
 
     private static CheckOutcome UnlistedNumberHandling(string id, Type changedType, string change)
@@ -119,6 +145,249 @@ internal static class AttributeRules
                 $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}",
                 passed),
             id);
+    }
+
+    private static CheckOutcome RedundantConstructorAttribute()
+    {
+        const string id = "A01.adversarial.attributes-constructor-redundant";
+        JsonSerializerOptions options = JsonContractOptions.Reflection();
+        JsonTypeInfo withoutAttribute = options.GetTypeInfo(typeof(RedundantJsonConstructorWithoutAttribute));
+        JsonTypeInfo withAttribute = options.GetTypeInfo(typeof(RedundantJsonConstructorWithAttribute));
+        string withoutDocument = ContractCanonicalizer.Canonicalize(withoutAttribute);
+        string withDocument = ContractCanonicalizer.Canonicalize(withAttribute);
+        string withoutWire = WireProbe.Write(
+            new RedundantJsonConstructorWithoutAttribute(7),
+            withoutAttribute);
+        string withWire = WireProbe.Write(
+            new RedundantJsonConstructorWithAttribute(7),
+            withAttribute);
+        string? reason = ContractClassifier.DescribeUnsupported(withAttribute);
+        bool recorded = withDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
+        bool absentWithoutAttribute = !withoutDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
+        bool denied = string.Equals(
+            ContractDocument.RootRule(withDocument),
+            RuleIds.UnsupportedAttributeUnlisted,
+            StringComparison.Ordinal);
+        bool wireUnchanged = string.Equals(withoutWire, withWire, StringComparison.Ordinal);
+        bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
+        bool withoutSupported = ContractDocument.OverallSupported(withoutDocument);
+        bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
+        bool assertionFailed = AssertUnsupported(id, reason);
+        bool passed = recorded && absentWithoutAttribute && denied && wireUnchanged && documentDiffers &&
+            withoutSupported && withUnsupported && assertionFailed;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "Declared serialization attributes",
+                "a redundant [JsonConstructor] declaration is added to a type with one public parameterized constructor",
+                Expected,
+                passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
+                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withUnsupported ? "Unsupported" : "Supported")}, overall={(withUnsupported ? "Unsupported" : "Supported")}",
+                $"recorded={recorded}; absentWithoutAttribute={absentWithoutAttribute}; wireUnchanged={wireUnchanged}; " +
+                $"documentDiffers={documentDiffers}; withoutWire={withoutWire}; withWire={withWire}; " +
+                $"withoutSupported={withoutSupported}; withUnsupported={withUnsupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
+                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionFailed={assertionFailed}",
+                passed),
+            id);
+    }
+
+    private static CheckOutcome ConstructorAttributeChangesBinding()
+    {
+        const string id = "A01.adversarial.attributes-constructor-binding";
+        JsonSerializerOptions options = JsonContractOptions.Reflection();
+        JsonTypeInfo withoutAttribute = options.GetTypeInfo(typeof(ConstructorBindingWithoutAttribute));
+        JsonTypeInfo withAttribute = options.GetTypeInfo(typeof(ConstructorBindingWithAttribute));
+        const string document = "{\"Quantity\":7}";
+        ReadOutcome withoutRead = WireProbe.Read(document, withoutAttribute);
+        ReadOutcome withRead = WireProbe.Read(document, withAttribute);
+        string withoutDocument = ContractCanonicalizer.Canonicalize(withoutAttribute);
+        string withDocument = ContractCanonicalizer.Canonicalize(withAttribute);
+        string? reason = ContractClassifier.DescribeUnsupported(withAttribute);
+        bool recorded = withDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
+        bool denied = string.Equals(
+            ContractDocument.RootRule(withDocument),
+            RuleIds.UnsupportedAttributeUnlisted,
+            StringComparison.Ordinal);
+        bool bindingDiffers = withoutRead.ReboundedDocument == "{\"Quantity\":1}" &&
+            withRead.ReboundedDocument == "{\"Quantity\":7}";
+        bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
+        bool withoutSupported = ContractDocument.OverallSupported(withoutDocument);
+        bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
+        bool assertionFailed = AssertUnsupported(id, reason);
+        bool passed = recorded && denied && bindingDiffers && documentDiffers && withoutSupported &&
+            withUnsupported && assertionFailed && withoutRead.Fault is null && withRead.Fault is null;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "Declared serialization attributes",
+                "[JsonConstructor] selects the parameterized constructor when two public constructors bind the same JSON property differently",
+                Expected,
+                passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
+                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withUnsupported ? "Unsupported" : "Supported")}, overall={(withUnsupported ? "Unsupported" : "Supported")}",
+                $"recorded={recorded}; bindingDiffers={bindingDiffers}; withoutRead={Check.Describe(withoutRead)}; " +
+                $"withRead={Check.Describe(withRead)}; documentDiffers={documentDiffers}; withoutSupported={withoutSupported}; " +
+                $"withUnsupported={withUnsupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
+                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionFailed={assertionFailed}",
+                passed),
+            id);
+    }
+
+    private static CheckOutcome UnlistedDeclaration(string id, Type changedType, string change, string attributeName)
+    {
+        JsonSerializerOptions options = JsonContractOptions.Reflection();
+        JsonTypeInfo earlier = options.GetTypeInfo(typeof(QuantityInt));
+        JsonTypeInfo changed = options.GetTypeInfo(changedType);
+        string baselineDocument = ContractCanonicalizer.Canonicalize(earlier);
+        string changedDocument = ContractCanonicalizer.Canonicalize(changed);
+        string? reason = ContractClassifier.DescribeUnsupported(changed);
+        bool recorded = changedDocument.Contains(attributeName, StringComparison.Ordinal);
+        bool denied = string.Equals(
+            ContractDocument.RootRule(changedDocument),
+            RuleIds.UnsupportedAttributeUnlisted,
+            StringComparison.Ordinal);
+        bool baselineSupported = ContractDocument.OverallSupported(baselineDocument);
+        bool changedUnsupported = !ContractDocument.OverallSupported(changedDocument);
+        bool documentDiffers = !string.Equals(baselineDocument, changedDocument, StringComparison.Ordinal);
+        bool assertionFailed = AssertUnsupported(id, reason);
+        bool passed = recorded && denied && baselineSupported && changedUnsupported && documentDiffers && assertionFailed;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "Declared serialization attributes",
+                change,
+                Expected,
+                passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
+                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(changedUnsupported ? "Unsupported" : "Supported")}, overall={(changedUnsupported ? "Unsupported" : "Supported")}",
+                $"recorded={recorded}; documentDiffers={documentDiffers}; baselineSupported={baselineSupported}; " +
+                $"changedUnsupported={changedUnsupported}; rule={ContractDocument.RootRule(changedDocument) ?? "<missing>"}; " +
+                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionFailed={assertionFailed}",
+                passed),
+            id);
+    }
+
+    private static CheckOutcome StringEnumMemberNameAttribute()
+    {
+        const string id = "A01.adversarial.attributes-string-enum-member-name";
+        JsonSerializerOptions options = JsonContractOptions.Reflection(new JsonStringEnumConverter());
+        JsonTypeInfo baseline = options.GetTypeInfo(typeof(StateHolderNumeric));
+        JsonTypeInfo changed = options.GetTypeInfo(typeof(StringEnumMemberNameAttributeHolder));
+        string baselineWire = WireProbe.Write(new StateHolderNumeric { State = OrderState.Created }, baseline);
+        string changedWire = WireProbe.Write(
+            new StringEnumMemberNameAttributeHolder { State = StringEnumMemberNameValue.Created },
+            changed);
+        string baselineDocument = ContractCanonicalizer.Canonicalize(baseline);
+        string changedDocument = ContractCanonicalizer.Canonicalize(changed);
+        string? reason = ContractClassifier.DescribeUnsupported(changed);
+        bool recorded = changedDocument.Contains("JsonStringEnumMemberNameAttribute", StringComparison.Ordinal) &&
+            changedDocument.Contains("created-order", StringComparison.Ordinal);
+        bool denied = string.Equals(
+            ContractDocument.RootRule(changedDocument),
+            RuleIds.UnsupportedAttributeUnlisted,
+            StringComparison.Ordinal);
+        bool wireDiffers = baselineWire == "{\"State\":\"Created\"}" &&
+            changedWire == "{\"State\":\"created-order\"}";
+        bool baselineSupported = ContractDocument.OverallSupported(baselineDocument);
+        bool changedUnsupported = !ContractDocument.OverallSupported(changedDocument);
+        bool documentDiffers = !string.Equals(baselineDocument, changedDocument, StringComparison.Ordinal);
+        bool assertionFailed = AssertUnsupported(id, reason);
+        bool passed = recorded && denied && wireDiffers && baselineSupported && changedUnsupported &&
+            documentDiffers && assertionFailed;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "Declared serialization attributes",
+                "a non-JsonAttribute System.Text.Json declaration changes a string enum member's wire name",
+                Expected,
+                passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
+                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(changedUnsupported ? "Unsupported" : "Supported")}, overall={(changedUnsupported ? "Unsupported" : "Supported")}",
+                $"recorded={recorded}; wireDiffers={wireDiffers}; baselineWire={baselineWire}; changedWire={changedWire}; " +
+                $"documentDiffers={documentDiffers}; baselineSupported={baselineSupported}; changedUnsupported={changedUnsupported}; " +
+                $"rule={ContractDocument.RootRule(changedDocument) ?? "<missing>"}; reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; " +
+                $"assertionFailed={assertionFailed}",
+                passed),
+            id);
+    }
+
+    private static CheckOutcome ExternalRuntimeSerializationAttributes()
+    {
+        const string id = "A01.adversarial.attributes-runtime-serialization";
+        JsonSerializerOptions options = JsonContractOptions.Reflection();
+        JsonTypeInfo baseline = options.GetTypeInfo(typeof(RuntimeSerializationBaselineHolder));
+        JsonTypeInfo changed = options.GetTypeInfo(typeof(RuntimeSerializationAttributeHolder));
+        JsonTypeInfo generated = TelemetryContext.Default.RuntimeSerializationAttributeHolder;
+        string baselineWire = WireProbe.Write(
+            new RuntimeSerializationBaselineHolder { Quantity = 7, Omitted = 9 },
+            baseline);
+        string changedWire = WireProbe.Write(
+            new RuntimeSerializationAttributeHolder { Quantity = 7, Omitted = 9 },
+            changed);
+        string generatedWire = WireProbe.Write(
+            new RuntimeSerializationAttributeHolder { Quantity = 7, Omitted = 9 },
+            generated);
+        string changedDocument = ContractCanonicalizer.Canonicalize(changed);
+        string generatedDocument = ContractCanonicalizer.Canonicalize(generated);
+        bool noSerializationFact = !changedDocument.Contains("System.Runtime.Serialization", StringComparison.Ordinal);
+        bool generatedNoSerializationFact = !generatedDocument.Contains("System.Runtime.Serialization", StringComparison.Ordinal);
+        bool wireUnchanged = baselineWire == "{\"Quantity\":7,\"Omitted\":9}" && changedWire == baselineWire && generatedWire == baselineWire;
+        bool supported = ContractDocument.OverallSupported(changedDocument) && ContractDocument.OverallSupported(generatedDocument);
+        bool passed = noSerializationFact && generatedNoSerializationFact && wireUnchanged && supported;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "External serialization attributes",
+                "the default System.Text.Json metadata path measures System.Runtime.Serialization declarations as irrelevant",
+                "reflection=Ignored, source-generated=Ignored, wire=Unchanged, overall=Supported",
+                passed ? "reflection=Ignored, source-generated=Ignored, wire=Unchanged, overall=Supported" : "external-effect=Observed",
+                $"noSerializationFact={noSerializationFact}; generatedNoSerializationFact={generatedNoSerializationFact}; baselineWire={baselineWire}; changedWire={changedWire}; generatedWire={generatedWire}; overallSupported={supported}",
+                passed),
+            id);
+    }
+
+    private static CheckOutcome SerializableAttributeIsIrrelevant()
+    {
+        const string id = "A01.adversarial.attributes-serializable-irrelevant";
+        JsonSerializerOptions options = JsonContractOptions.Reflection();
+        JsonTypeInfo baseline = options.GetTypeInfo(typeof(QuantityInt));
+        JsonTypeInfo changed = options.GetTypeInfo(typeof(SerializableAttributeHolder));
+        string baselineWire = WireProbe.Write(new QuantityInt { Quantity = 7 }, baseline);
+        string changedWire = WireProbe.Write(new SerializableAttributeHolder { Quantity = 7 }, changed);
+        string changedDocument = ContractCanonicalizer.Canonicalize(changed);
+        bool noSerializationFact = !changedDocument.Contains("System.SerializableAttribute", StringComparison.Ordinal);
+        bool unchangedWire = baselineWire == "{\"Quantity\":7}" && changedWire == baselineWire;
+        bool supported = ContractDocument.OverallSupported(changedDocument);
+        bool passed = noSerializationFact && unchangedWire && supported;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "External serialization attributes",
+                "[Serializable] is measured as irrelevant to the loaded System.Text.Json contract",
+                "recorded=False, wire=Unchanged, overall=Supported",
+                passed ? "recorded=False, wire=Unchanged, overall=Supported" : "external-effect=Observed",
+                $"noSerializationFact={noSerializationFact}; baselineWire={baselineWire}; changedWire={changedWire}; overallSupported={supported}",
+                passed),
+            id);
+    }
+
+    private static bool AssertUnsupported(string id, string? reason)
+    {
+        var report = new ContractChangeReport();
+        report.AddUnsupported(id, reason is null ? "the contract was reported as supported" : MetadataDiscoverySources.Reason(reason));
+
+        try
+        {
+            report.AssertCompatible();
+            return false;
+        }
+        catch (ContractCheckFailedException)
+        {
+            return true;
+        }
     }
 
     private static CheckOutcome AcceptedAttributesRecorded()
@@ -212,6 +481,37 @@ internal static class AttributeRules
                 $"reflection={reflectionRecorded}; sourceGenerated={generatedRecorded}; supported={supported}",
                 passed),
             "R13.source-generation.ignore-attributes");
+    }
+
+    private static CheckOutcome SourceGeneratedConstructorAttribute()
+    {
+        const string id = "R13.source-generation.constructor-attribute";
+        JsonSerializerOptions reflection = JsonContractOptions.Reflection();
+        string reflectionDocument = ContractCanonicalizer.Canonicalize(
+            reflection.GetTypeInfo(typeof(ConstructorBindingWithAttribute)));
+        string generatedDocument = ContractCanonicalizer.Canonicalize(TelemetryContext.Default.ConstructorBindingWithAttribute);
+        ReadOutcome generatedRead = WireProbe.Read(
+            "{\"Quantity\":7}",
+            TelemetryContext.Default.ConstructorBindingWithAttribute);
+        bool reflectionRecorded = reflectionDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
+        bool generatedRecorded = generatedDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
+        bool unsupported = !ContractDocument.OverallSupported(reflectionDocument) &&
+            !ContractDocument.OverallSupported(generatedDocument) &&
+            ContractDocument.RootRule(generatedDocument) == RuleIds.UnsupportedAttributeUnlisted;
+        bool bindingObserved = generatedRead.Fault is null && generatedRead.ReboundedDocument == "{\"Quantity\":7}";
+        bool passed = reflectionRecorded && generatedRecorded && unsupported && bindingObserved;
+
+        return Bind(
+            Check.Assert(
+                id,
+                "Source-generated metadata",
+                "the constructor declaration is recorded from reflection for a source-generated JsonTypeInfo, and source-generated metadata honors its selected constructor",
+                "reflection=Recorded, source-generated=Recorded, source-generated=Unsupported, binding=7",
+                passed ? "reflection=Recorded, source-generated=Recorded, source-generated=Unsupported, binding=7" : "declared-attributes=MissingOrSupported, binding=unproven",
+                $"reflectionRecorded={reflectionRecorded}; generatedRecorded={generatedRecorded}; unsupported={unsupported}; " +
+                $"bindingObserved={bindingObserved}; generatedRead={Check.Describe(generatedRead)}",
+                passed),
+            id);
     }
 
     private static CheckOutcome Bind(CheckOutcome check, string pathId) =>

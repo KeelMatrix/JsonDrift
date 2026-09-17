@@ -32,6 +32,11 @@ internal sealed class TelemetryBatch
 [JsonSerializable(typeof(WriteAsStringNumberMember))]
 [JsonSerializable(typeof(NeverIgnoredMember))]
 [JsonSerializable(typeof(DefaultIgnoredMember))]
+[JsonSerializable(typeof(RedundantJsonConstructorWithoutAttribute))]
+[JsonSerializable(typeof(RedundantJsonConstructorWithAttribute))]
+[JsonSerializable(typeof(ConstructorBindingWithoutAttribute))]
+[JsonSerializable(typeof(ConstructorBindingWithAttribute))]
+[JsonSerializable(typeof(RuntimeSerializationAttributeHolder))]
 internal sealed partial class TelemetryContext : JsonSerializerContext
 {
 }

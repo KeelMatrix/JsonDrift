@@ -30,7 +30,7 @@ internal enum MetadataSourceKind
     /// <summary>The captured value type of a <c>JsonExtensionData</c> member.</summary>
     ExtensionData,
 
-    /// <summary>The parameter types of the public constructors of a visited object contract.</summary>
+    /// <summary>The parameter types of the constructors of a visited object contract.</summary>
     ConstructorParameters,
 
     /// <summary>The element type of a visited array or enumerable contract.</summary>
@@ -48,7 +48,7 @@ internal enum MetadataSourceKind
     /// <summary>The wire-affecting setting values of the <c>JsonSerializerOptions</c> the contract is recorded under.</summary>
     OptionsSettings,
 
-    /// <summary>JSON serialization attributes declared on visited contract types and recorded members.</summary>
+    /// <summary>System.Text.Json serialization attributes declared on visited contract types, constructors, members, and enum fields.</summary>
     DeclaredAttributes,
 
     /// <summary>Observable configuration probed by executing an allowlisted framework enum converter.</summary>
@@ -95,13 +95,13 @@ internal static class MetadataSourceRules
         MetadataSourceKind.OptionsConverters => "a converter registered in JsonSerializerOptions.Converters",
         MetadataSourceKind.ObjectMembers => "the members of a visited object contract",
         MetadataSourceKind.ExtensionData => "the captured value type of a JsonExtensionData member",
-        MetadataSourceKind.ConstructorParameters => "the parameter types of the public constructors of a visited contract",
+        MetadataSourceKind.ConstructorParameters => "the parameter types of the constructors of a visited contract",
         MetadataSourceKind.EnumerableElementTypes => "the element type of a visited array or enumerable contract",
         MetadataSourceKind.DictionaryKeyTypes => "the key type of a visited dictionary contract",
         MetadataSourceKind.DictionaryValueTypes => "the value type of a visited dictionary contract",
         MetadataSourceKind.PolymorphismDerivedTypes => "the types registered in JsonPolymorphismOptions.DerivedTypes",
         MetadataSourceKind.OptionsSettings => "the wire-affecting setting values of JsonSerializerOptions",
-        MetadataSourceKind.DeclaredAttributes => "the declared System.Text.Json.Serialization.JsonAttribute facts on contract types and members",
+        MetadataSourceKind.DeclaredAttributes => "the declared System.Text.Json.Serialization attribute facts on contract types, constructors, members, and enum fields",
         MetadataSourceKind.ConverterConfiguration => "the integer-token acceptance observed by executing an allowlisted enum converter",
     };
 

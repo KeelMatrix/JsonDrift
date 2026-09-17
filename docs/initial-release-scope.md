@@ -26,7 +26,7 @@ Evidence:
   member into a numeric representation (`R08.enum.member-insertion`), and registering an additional derived
   type (`R10.polymorphism.derived-type-added`). Every other measured change is incompatible under at least one
   policy. The unsupported set is likewise read from the matrix output
-  (`D04.policy.unsupported-count` reports the 66 checks that record unsupported metadata).
+  (`D04.policy.unsupported-count` reports the 73 checks that record unsupported metadata).
 * Two measured changes are deliberately not classified in either direction. A dictionary key-type change is
   reported unsupported (`R07.shape.dictionary-key-type`) because compatibility depends on the earlier key
   value space, which the contract model does not record: the key `"1"` is read back unchanged by an
@@ -38,7 +38,7 @@ Evidence:
   which a rename or removal is accepted in the reverse direction while the value is silently dropped. The
   parse-only variant has its own rule-by-rule proof obligation and is not part of the measured matrix.
 * `ReaderBackward` is the only policy whose semantics are proven for every shipped rule in both a change case
-  and an unchanged-contract control case: the matrix runs 235 executed checks and all of them agree with the
+  and an unchanged-contract control case: the matrix runs 244 executed checks and all of them agree with the
   recorded classification. The count is asserted by `D04.matrix.check-count`, so adding, removing, or
   reclassifying a check fails the matrix until this document is updated with it.
 * The invariant that unsupported or opaque metadata never maps to compatible is enforced by construction
@@ -59,6 +59,17 @@ Evidence:
   (`R15.canonical-document.aggregate-support-state`), so a report layer never infers safety from a root flag
   while nested metadata is unsupported. An executable adversarial set (`A01.adversarial.*`) keeps trying to
   hide opaque metadata behind a path no rule names, and every case has to fail closed.
+
+  Declared serialization metadata is closed over the loaded `System.Text.Json` assembly: every class deriving
+  from `System.Attribute` in its `System.Text.Json.Serialization` namespace is inventoried with measured
+  declaration facts or explicitly excluded with a measured reason. The abstract `JsonAttribute` base is the
+  only current exclusion; declarations such as `JsonConstructor` and `JsonStringEnumMemberName` are recorded
+  regardless of their attribute base hierarchy, and an unhandled declaration type fails
+  `D06.allowlist.attribute-declaration-coverage` rather than passing silently. The loaded runtime's honored
+  `System.Runtime.Serialization` declarations (`DataContract`, `DataMember`, and `IgnoreDataMember`) are
+  measured as irrelevant to the default metadata paths, while `[Serializable]` is likewise measured as
+  irrelevant. Constructor selection is denied unless an accepted declaration is measured; the redundant and two-constructor probes,
+  including their reflection and source-generated constructor evidence, keep this rule executable.
 
 Consequence for the API: one policy is exposed for the first release, so there is no second, weaker definition
 of "compatible" for users to misinterpret. The forward and full measurements already exist in the experiment,

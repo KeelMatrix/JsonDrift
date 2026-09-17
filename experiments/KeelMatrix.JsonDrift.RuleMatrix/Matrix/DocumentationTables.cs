@@ -12,6 +12,9 @@ internal static class DocumentationTables
     /// <summary>The heading that starts the metadata discovery path inventory.</summary>
     public const string InventoryHeading = "### Metadata discovery path inventory";
 
+    /// <summary>The heading that starts the runtime System.Text.Json declaration coverage table.</summary>
+    public const string AttributeCoverageHeading = "### Runtime System.Text.Json declaration coverage";
+
     private const string ScalarAllowlistPrefix = "Allowlisted framework scalar types:";
     private const string ConverterAllowlistPrefix = "Allowlisted framework converters:";
     private const string ResolverAllowlistPrefix = "Allowlisted metadata resolvers:";
@@ -65,7 +68,8 @@ internal static class DocumentationTables
 
         for (int index = headingIndex + 1; index < lines.Length; index++)
         {
-            if (lines[index].StartsWith("## ", StringComparison.Ordinal))
+            if (lines[index].StartsWith("## ", StringComparison.Ordinal) ||
+                lines[index].StartsWith("### ", StringComparison.Ordinal))
             {
                 break;
             }
