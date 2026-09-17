@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
@@ -85,8 +86,58 @@ internal static class EnumRules
 
         AddWireIdentityChecks(results, numericState, textState, renamedState, camelStage, snakeStage);
         AddMemberLevelWireIdentityCheck(results, numeric, numericState, memberLevelState, derivedMemberLevelState);
+        results.Add(AddConverterConfigurationCheck(
+            numericState,
+            textState,
+            textOnlyState,
+            text.GetTypeInfo(typeof(OrderState)),
+            textOnly.GetTypeInfo(typeof(OrderState))));
 
         return results;
+    }
+
+    private static CheckOutcome AddConverterConfigurationCheck(
+        JsonTypeInfo numericState,
+        JsonTypeInfo textState,
+        JsonTypeInfo textOnlyState,
+        JsonTypeInfo textEnum,
+        JsonTypeInfo textOnlyEnum)
+    {
+        string numericDocument = ContractCanonicalizer.Canonicalize(numericState);
+        string textDocument = ContractCanonicalizer.Canonicalize(textState);
+        string textOnlyDocument = ContractCanonicalizer.Canonicalize(textOnlyState);
+        JsonObject? numericWire = ContractDocument.MemberEnumWire(numericDocument, "State");
+        JsonObject? textWire = ContractDocument.MemberEnumWire(textDocument, "State");
+        JsonObject? textOnlyWire = ContractDocument.MemberEnumWire(textOnlyDocument, "State");
+        bool numericAccepted = ContractDocument.EnumIntegerTokensAccepted(numericWire) == true;
+        bool textAccepted = ContractDocument.EnumIntegerTokensAccepted(textWire) == true;
+        bool textOnlyRejected = ContractDocument.EnumIntegerTokensAccepted(textOnlyWire) == false;
+        bool documentsDiffer = !string.Equals(textDocument, textOnlyDocument, StringComparison.Ordinal);
+        bool allSupported = ContractDocument.OverallSupported(numericDocument) &&
+            ContractDocument.OverallSupported(textDocument) &&
+            ContractDocument.OverallSupported(textOnlyDocument);
+        ReadOutcome textRead = WireProbe.Read("1", textEnum);
+        ReadOutcome textOnlyRead = WireProbe.Read("1", textOnlyEnum);
+        bool probeDiffers = textRead.Parsed && !textOnlyRead.Parsed && textOnlyRead.Fault is null;
+        bool passed = numericAccepted && textAccepted && textOnlyRejected && documentsDiffer && allSupported && probeDiffers;
+
+        string Hash(string value) => Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))[..16].ToLowerInvariant();
+
+        return new CheckOutcome(
+            "R08.enum.converter-configuration",
+            "Enum converter configuration",
+            "the integer-token acceptance of an allowlisted JsonStringEnumConverter is derived by executing its read behavior",
+            "default=true, allowIntegerValues=true, allowIntegerValues=false, documents=Differ, both=Supported",
+            passed
+                ? "default=true, allowIntegerValues=true, allowIntegerValues=false, documents=Differ, both=Supported"
+                : $"default={numericAccepted}; allowIntegerValues={textAccepted}; allowIntegerValuesFalse={textOnlyRejected}; documentsDiffer={documentsDiffer}; supported={allSupported}",
+            $"numeric={numericAccepted}; text={textAccepted}; textOnly={textOnlyRejected}; probeDefault={textRead.Parsed}; probeTextOnly={!textOnlyRead.Parsed}; " +
+            $"documentHashes=text:{Hash(textDocument)}, textOnly:{Hash(textOnlyDocument)}; converterTypes=" +
+            $"{textWire?["converterType"]?.GetValue<string>() ?? "<missing>"}; {textWire?["integerTokensAccepted"]?.GetValue<bool>().ToString() ?? "<missing>"}",
+            passed,
+            MetadataSourceRules.Id(MetadataSourceKind.ConverterConfiguration),
+            "R08.enum.converter-configuration");
     }
 
     /// <summary>

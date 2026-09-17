@@ -26,7 +26,7 @@ Evidence:
   member into a numeric representation (`R08.enum.member-insertion`), and registering an additional derived
   type (`R10.polymorphism.derived-type-added`). Every other measured change is incompatible under at least one
   policy. The unsupported set is likewise read from the matrix output
-  (`D04.policy.unsupported-count` reports the 62 checks that record unsupported metadata).
+  (`D04.policy.unsupported-count` reports the 66 checks that record unsupported metadata).
 * Two measured changes are deliberately not classified in either direction. A dictionary key-type change is
   reported unsupported (`R07.shape.dictionary-key-type`) because compatibility depends on the earlier key
   value space, which the contract model does not record: the key `"1"` is read back unchanged by an
@@ -38,7 +38,7 @@ Evidence:
   which a rename or removal is accepted in the reverse direction while the value is silently dropped. The
   parse-only variant has its own rule-by-rule proof obligation and is not part of the measured matrix.
 * `ReaderBackward` is the only policy whose semantics are proven for every shipped rule in both a change case
-  and an unchanged-contract control case: the matrix runs 225 executed checks and all of them agree with the
+  and an unchanged-contract control case: the matrix runs 235 executed checks and all of them agree with the
   recorded classification. The count is asserted by `D04.matrix.check-count`, so adding, removing, or
   reclassifying a check fails the matrix until this document is updated with it.
 * The invariant that unsupported or opaque metadata never maps to compatible is enforced by construction

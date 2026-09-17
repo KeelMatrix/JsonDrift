@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
@@ -32,6 +33,8 @@ internal static class AdversarialRules
         JsonSerializerOptions factory = JsonContractOptions.Reflection(new AdversarialFactory());
         JsonSerializerOptions customization = AdversarialMetadataCustomization.Options();
         JsonSerializerOptions chain = AdversarialMetadataCustomization.Chained();
+        JsonSerializerOptions unmeasuredConverterConfiguration =
+            JsonContractOptions.Reflection(new JsonNumberEnumConverter<OrderState>());
 
         Case[] cases =
         {
@@ -109,6 +112,13 @@ internal static class AdversarialRules
                 MetadataSourceKind.ObjectMembers,
                 "A01.adversarial.unlisted-scalar-type",
                 () => reflection.GetTypeInfo(typeof(UnlistedScalarHolder))),
+            new(
+                "A01.adversarial.converter-configuration-unlisted",
+                "an allowlisted enum converter configuration outside the measured probe set is registered on the options",
+                MetadataSourceKind.ConverterConfiguration,
+                "A01.adversarial.converter-configuration-unlisted",
+                () => unmeasuredConverterConfiguration.GetTypeInfo(typeof(StateHolderNumeric)),
+                "\"integerTokensAccepted\": true"),
         };
 
         foreach (Case adversarialCase in cases)

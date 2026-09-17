@@ -64,7 +64,11 @@ internal sealed record RecordedEnumMember(string Name, string Token, bool IsStri
 /// The recorded wire identity of an enum contract: the serialized name of every member when the effective
 /// framework converter writes strings, or the numeric value of every member otherwise.
 /// </summary>
-internal sealed record RecordedEnumWire(bool WritesStringTokens, bool Unresolved, IReadOnlyList<RecordedEnumMember> Members);
+internal sealed record RecordedEnumWire(
+    bool WritesStringTokens,
+    bool Unresolved,
+    RecordedConverterConfiguration? ConverterConfiguration,
+    IReadOnlyList<RecordedEnumMember> Members);
 
 /// <summary>
 /// One recorded member of an object contract, with the member-level metadata that decides its wire shape and
@@ -79,6 +83,7 @@ internal sealed record RecordedMember(
     bool ExtensionData,
     RecordedEnumWire? EnumWire,
     IReadOnlyList<RecordedConverterFact> ConverterFacts,
+    IReadOnlyList<RecordedAttributeFact> DeclaredAttributes,
     RecordedNode Shape)
 {
     /// <summary>The path from the root contract to this member.</summary>
@@ -120,6 +125,9 @@ internal sealed class RecordedNode
 
     /// <summary>The wire-affecting serializer option values this contract was recorded under.</summary>
     public RecordedOptionSet Options { get; set; } = RecordedOptionSet.None;
+
+    /// <summary>The declared JSON serialization attributes read from reflection for this type.</summary>
+    public List<RecordedAttributeFact> DeclaredAttributes { get; } = new();
 
     /// <summary>The converters declared or registered for this contract.</summary>
     public List<RecordedConverterFact> ConverterFacts { get; } = new();

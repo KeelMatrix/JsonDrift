@@ -49,6 +49,8 @@ internal static class InventoryRules
         }
 
         yield return OptionAllowlistCheck(lines);
+        yield return AttributeAllowlistCheck(lines);
+        yield return ConverterConfigurationAllowlistCheck(lines);
     }
 
     /// <summary>
@@ -104,6 +106,84 @@ internal static class InventoryRules
             $"allowlistedButNotAccepted=[{string.Join(", ", allowlistedButNotAccepted)}]; " +
             $"acceptedButNotAllowlisted=[{string.Join(", ", acceptedButNotAllowlisted)}]; " +
             $"familiesWithoutAcceptedValue=[{string.Join(", ", familiesWithoutAcceptedValue)}]",
+            passed);
+    }
+
+    private static CheckOutcome AttributeAllowlistCheck(string[] lines)
+    {
+        string[] documented = DocumentationTables.ReadAllowlist(lines, AllowlistKind.AttributeValues)?.ToArray()
+            ?? Array.Empty<string>();
+        string[] allowlisted = ContractAllowlists.AttributeValueNames.ToArray();
+        string[] accepted = TraversalInventory.Ledger.AcceptedAttributes().ToArray();
+
+        string[] codeNotDocumented = allowlisted
+            .Where(name => !documented.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] documentedNotInCode = documented
+            .Where(name => !allowlisted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] allowlistedButNotAccepted = allowlisted
+            .Where(name => !accepted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] acceptedButNotAllowlisted = accepted
+            .Where(name => !allowlisted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+
+        bool passed =
+            codeNotDocumented.Length == 0 &&
+            documentedNotInCode.Length == 0 &&
+            allowlistedButNotAccepted.Length == 0 &&
+            acceptedButNotAllowlisted.Length == 0;
+
+        return Check.Assert(
+            "D06.allowlist.attribute-values",
+            "Deny-by-default allowlist",
+            "the declared JSON attribute allowlist is compared with the documented list and with the attribute facts the executed checks accepted under",
+            "code=documented=accepted",
+            passed ? "code=documented=accepted" : $"code={allowlisted.Length}, documented={documented.Length}, accepted={accepted.Length}",
+            $"codeNotDocumented=[{string.Join(", ", codeNotDocumented)}]; documentedNotInCode=[{string.Join(", ", documentedNotInCode)}]; " +
+            $"allowlistedButNotAccepted=[{string.Join(", ", allowlistedButNotAccepted)}]; " +
+            $"acceptedButNotAllowlisted=[{string.Join(", ", acceptedButNotAllowlisted)}]",
+            passed);
+    }
+
+    private static CheckOutcome ConverterConfigurationAllowlistCheck(string[] lines)
+    {
+        string[] documented = DocumentationTables.ReadAllowlist(lines, AllowlistKind.ConverterConfigurations)?.ToArray()
+            ?? Array.Empty<string>();
+        string[] allowlisted = ContractAllowlists.ConverterConfigurationNames.ToArray();
+        string[] accepted = TraversalInventory.Ledger.AcceptedConverterConfigurations()
+            .Select(static value => value.Display)
+            .ToArray();
+
+        string[] codeNotDocumented = allowlisted
+            .Where(name => !documented.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] documentedNotInCode = documented
+            .Where(name => !allowlisted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] allowlistedButNotAccepted = allowlisted
+            .Where(name => !accepted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+        string[] acceptedButNotAllowlisted = accepted
+            .Where(name => !allowlisted.Contains(name, StringComparer.Ordinal))
+            .ToArray();
+
+        bool passed =
+            codeNotDocumented.Length == 0 &&
+            documentedNotInCode.Length == 0 &&
+            allowlistedButNotAccepted.Length == 0 &&
+            acceptedButNotAllowlisted.Length == 0;
+
+        return Check.Assert(
+            "D06.allowlist.converter-configurations",
+            "Deny-by-default allowlist",
+            "the enum converter-configuration allowlist is compared with the documented list and with the configurations the executed checks accepted under",
+            "code=documented=accepted",
+            passed ? "code=documented=accepted" : $"code={allowlisted.Length}, documented={documented.Length}, accepted={accepted.Length}",
+            $"codeNotDocumented=[{string.Join(", ", codeNotDocumented)}]; documentedNotInCode=[{string.Join(", ", documentedNotInCode)}]; " +
+            $"allowlistedButNotAccepted=[{string.Join(", ", allowlistedButNotAccepted)}]; " +
+            $"acceptedButNotAllowlisted=[{string.Join(", ", acceptedButNotAllowlisted)}]",
             passed);
     }
 

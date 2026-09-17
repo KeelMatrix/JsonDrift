@@ -229,6 +229,11 @@ internal static class ContractClassifier
                             $"{node.Path} declares an enum converter whose wire name could not be produced"));
                 }
 
+                if (ClassifyConverterConfiguration(node.EnumWire, node.Source, node.Path) is Classification configurationVerdict)
+                {
+                    return configurationVerdict;
+                }
+
                 return Classification.Classifiable(RuleIds.SupportedEnum);
             }
 
@@ -294,6 +299,20 @@ internal static class ContractClassifier
                         $"{member.Path} declares an enum converter whose wire name could not be produced"));
             }
 
+            if (DescribeUnlistedAttributes(member.DeclaredAttributes) is Classification attributeVerdict)
+            {
+                return attributeVerdict;
+            }
+
+            if (member.EnumWire is RecordedEnumWire memberWire &&
+                ClassifyConverterConfiguration(
+                    memberWire,
+                    member.ConverterFacts.Count > 0 ? member.ConverterFacts[0].Source : MetadataSourceKind.ConverterConfiguration,
+                    member.Path) is Classification memberConfigurationVerdict)
+            {
+                return memberConfigurationVerdict;
+            }
+
             Classification shapeVerdict = ClassifyNode(member.Shape);
 
             return shapeVerdict.Supported
@@ -334,6 +353,71 @@ internal static class ContractClassifier
                 }
             }
 
+            if (DescribeUnlistedAttributes(node.DeclaredAttributes) is Classification attributeVerdict)
+            {
+                return attributeVerdict;
+            }
+
+            return null;
+        }
+
+        private static Classification? DescribeUnlistedAttributes(IReadOnlyList<RecordedAttributeFact> attributes)
+        {
+            string[] unlisted = attributes
+                .Where(static attribute => !ContractAllowlists.IsAllowlistedAttribute(attribute))
+                .Select(static attribute => attribute.Display)
+                .ToArray();
+
+            if (unlisted.Length == 0)
+            {
+                foreach (RecordedAttributeFact attribute in attributes)
+                {
+                    TraversalInventory.Ledger.RecordAcceptedAttribute(attribute);
+                }
+
+                return null;
+            }
+
+            return Unclassifiable(
+                RuleIds.UnsupportedAttributeUnlisted,
+                Witness(
+                    MetadataSourceKind.DeclaredAttributes,
+                    $"the declared serialization attributes {string.Join(", ", unlisted)} are not on the attribute allowlist"));
+        }
+
+        private static Classification? ClassifyConverterConfiguration(
+            RecordedEnumWire wire,
+            MetadataSourceKind source,
+            string path)
+        {
+            if (wire.ConverterConfiguration is not RecordedConverterConfiguration configuration)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedEnumWireUnresolved,
+                    Witness(MetadataSourceKind.ConverterConfiguration, $"{path} recorded no converter configuration"));
+            }
+
+            TraversalInventory.Ledger.RecordSource(MetadataSourceKind.ConverterConfiguration);
+
+            if (configuration.IntegerTokensAccepted is null)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedEnumWireUnresolved,
+                    Witness(
+                        MetadataSourceKind.ConverterConfiguration,
+                        $"{path} converter configuration {configuration.Display} could not be probed"));
+            }
+
+            if (!ContractAllowlists.IsAllowlistedConverterConfiguration(configuration))
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedConverterConfigurationUnlisted,
+                    Witness(
+                        MetadataSourceKind.ConverterConfiguration,
+                        $"{path} converter configuration {configuration.Display} is not on the measured allowlist"));
+            }
+
+            TraversalInventory.Ledger.RecordAcceptedConverterConfiguration(configuration);
             return null;
         }
 

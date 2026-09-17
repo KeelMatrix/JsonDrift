@@ -62,9 +62,22 @@ internal static class MetadataTraversal
             }
         }
 
-        return
+        MemberInfo? direct =
             (MemberInfo?)type.GetProperty(property.Name, InstanceMembers) ??
             type.GetField(property.Name, InstanceMembers);
+
+        if (direct is not null)
+        {
+            return direct;
+        }
+
+        // JsonPropertyInfo.Name is the serialized name, so a declared JsonPropertyName can hide the CLR
+        // member name when the metadata provider does not expose an accessor MethodInfo.
+        return type
+            .GetMembers(InstanceMembers)
+            .Where(static candidate => candidate is PropertyInfo or FieldInfo)
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name, property.Name, StringComparison.Ordinal));
     }
 
     private sealed class Walk
@@ -132,6 +145,7 @@ internal static class MetadataTraversal
             visited.Add(type);
             recorded.Add(type, node);
 
+            node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(type, path));
             node.Resolver = RecordResolver(path, info.Options);
             RecordOptions(node, info.Options);
             RecordConverterFacts(node, type, info.Options, path);
@@ -166,6 +180,7 @@ internal static class MetadataTraversal
                 FrameworkKind = known?.Kind,
             };
 
+            node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(type, path));
             node.Resolver = RecordResolver(path, known?.Options ?? options);
             RecordOptions(node, known?.Options ?? options);
 
@@ -319,6 +334,7 @@ internal static class MetadataTraversal
         {
             var facts = new List<RecordedConverterFact>();
             MemberInfo? member = ResolveMember(owner.Type, property);
+            IReadOnlyList<RecordedAttributeFact> attributes = RecordDeclaredAttributes(member, path);
             JsonConverterAttribute? attribute = member?.GetCustomAttribute<JsonConverterAttribute>(inherit: true);
 
             if (attribute?.ConverterType is Type attributeConverter)
@@ -348,11 +364,40 @@ internal static class MetadataTraversal
                 property.IsExtensionData,
                 opaque ? null : RecordEnumWire(owner, property, property.PropertyType, path),
                 facts,
+                attributes,
                 shape)
             {
                 Path = path,
                 MetadataNotResolved = opaque,
             };
+        }
+
+        /// <summary>
+        /// Enumerates reflection-declared JsonAttribute instances and records every one before any
+        /// allowlist filtering. A source-generated JsonTypeInfo does not expose this declaration set itself;
+        /// the same reflection lookup against its contract type/member is therefore the measured source and
+        /// the limitation is documented in the rule matrix.
+        /// </summary>
+        private static IReadOnlyList<RecordedAttributeFact> RecordDeclaredAttributes(MemberInfo? member, string path)
+        {
+            TraversalInventory.Ledger.RecordSource(MetadataSourceKind.DeclaredAttributes);
+
+            return member is null
+                ? new[]
+                {
+                    new RecordedAttributeFact(
+                        MetadataSourceKind.DeclaredAttributes,
+                        path,
+                        "<unresolved-declared-attributes>",
+                        new[] { new RecordedAttributeArgument("reason", "reflection member unavailable") }),
+                }
+                : DeclaredAttributeFacts.ReadMember(member, path);
+        }
+
+        private static IReadOnlyList<RecordedAttributeFact> RecordDeclaredAttributes(Type type, string path)
+        {
+            TraversalInventory.Ledger.RecordSource(MetadataSourceKind.DeclaredAttributes);
+            return DeclaredAttributeFacts.ReadType(type, path);
         }
 
         private static RecordedResolverFact RecordResolver(string path, JsonSerializerOptions options)
@@ -439,6 +484,7 @@ internal static class MetadataTraversal
                 return new RecordedEnumWire(
                     false,
                     true,
+                    null,
                     Enum.GetNames(enumType)
                         .OrderBy(static name => name, StringComparer.Ordinal)
                         .Select(static name => new RecordedEnumMember(name, UnresolvedToken, true))
@@ -448,6 +494,10 @@ internal static class MetadataTraversal
             var members = new List<RecordedEnumMember>();
             bool unresolved = false;
             bool writesStrings = EnumWritesStringTokens(owner, property, enumType);
+            Type? converterType = EffectiveEnumConverterType(owner, property, enumType);
+            RecordedConverterConfiguration? configuration =
+                ConverterConfigurationFacts.Probe(effectiveOptions, enumType, converterType);
+            TraversalInventory.Ledger.RecordSource(MetadataSourceKind.ConverterConfiguration);
 
             foreach (string name in Enum.GetNames(enumType).OrderBy(static name => name, StringComparer.Ordinal))
             {
@@ -468,7 +518,7 @@ internal static class MetadataTraversal
                     isString));
             }
 
-            return new RecordedEnumWire(writesStrings, unresolved, members);
+            return new RecordedEnumWire(writesStrings, unresolved, configuration, members);
         }
 
         /// <summary>
@@ -576,6 +626,23 @@ internal static class MetadataTraversal
             }
 
             return false;
+        }
+
+        private static Type? EffectiveEnumConverterType(JsonTypeInfo owner, JsonPropertyInfo? property, Type enumType)
+        {
+            if (MemberEnumConverter(owner, property, enumType) is JsonConverter memberConverter)
+            {
+                return memberConverter.GetType();
+            }
+
+            if (TypeConverterAttribute(enumType) is Type declaredType)
+            {
+                return declaredType;
+            }
+
+            return owner.Options.Converters
+                .FirstOrDefault(converter => ContractAllowlists.IsAllowlistedConverterFor(converter.GetType(), enumType))
+                ?.GetType();
         }
 
         private static Type? TypeConverterAttribute(Type type) =>

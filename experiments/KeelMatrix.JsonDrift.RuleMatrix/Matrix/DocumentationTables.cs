@@ -16,6 +16,8 @@ internal static class DocumentationTables
     private const string ConverterAllowlistPrefix = "Allowlisted framework converters:";
     private const string ResolverAllowlistPrefix = "Allowlisted metadata resolvers:";
     private const string OptionValueAllowlistPrefix = "Allowlisted serializer option values:";
+    private const string AttributeValueAllowlistPrefix = "Allowlisted declared JSON attributes:";
+    private const string ConverterConfigurationAllowlistPrefix = "Allowlisted enum converter configurations:";
 
     /// <summary>Locates the rule document from the running output directory.</summary>
     public static string? Locate()
@@ -97,8 +99,12 @@ internal static class DocumentationTables
                 continue;
             }
 
-            return trimmed[prefix.Length..]
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            string valueText = trimmed[prefix.Length..];
+            string[] values = kind is AllowlistKind.AttributeValues or AllowlistKind.ConverterConfigurations
+                ? valueText.Split(" | ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : valueText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            return values
                 .Select(static name => name.Trim().Trim('`'))
                 .Where(static name => name.Length > 0)
                 .ToArray();
@@ -154,6 +160,8 @@ internal static class DocumentationTables
         AllowlistKind.Converters => ConverterAllowlistPrefix,
         AllowlistKind.Resolvers => ResolverAllowlistPrefix,
         AllowlistKind.OptionValues => OptionValueAllowlistPrefix,
+        AllowlistKind.AttributeValues => AttributeValueAllowlistPrefix,
+        AllowlistKind.ConverterConfigurations => ConverterConfigurationAllowlistPrefix,
     };
 }
 
@@ -164,4 +172,6 @@ internal enum AllowlistKind
     Converters,
     Resolvers,
     OptionValues,
+    AttributeValues,
+    ConverterConfigurations,
 }

@@ -32,6 +32,8 @@ internal static class RuleIds
     public const string UnsupportedScalarUnlisted = "unsupported.scalar-unlisted";
     public const string UnsupportedEnumWireUnresolved = "unsupported.enum-wire-unresolved";
     public const string UnsupportedOptionUnlisted = "unsupported.option-unlisted";
+    public const string UnsupportedAttributeUnlisted = "unsupported.attribute-unlisted";
+    public const string UnsupportedConverterConfigurationUnlisted = "unsupported.converter-configuration-unlisted";
 }
 
 /// <summary>One documented classification rule.</summary>
@@ -127,6 +129,14 @@ internal static class RuleCatalog
             RuleIds.UnsupportedOptionUnlisted,
             false,
             "a recorded serializer option value is not on the option allowlist the committed checks are measured under"),
+        new(
+            RuleIds.UnsupportedAttributeUnlisted,
+            false,
+            "a declared JSON serialization attribute or argument value is not on the attribute allowlist the committed checks are measured under"),
+        new(
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
+            false,
+            "an allowlisted framework enum converter produced an observable configuration outside the measured converter-configuration allowlist"),
     };
 
     public static bool Contains(string ruleId) =>
@@ -167,6 +177,8 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedMetadataUnavailable,
             RuleIds.UnsupportedTraversalBudget,
             RuleIds.UnsupportedOptionUnlisted,
+            RuleIds.UnsupportedAttributeUnlisted,
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
         },
         RecordedNodeKind.Enumerable => new[]
         {
@@ -176,6 +188,8 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedMetadataUnavailable,
             RuleIds.UnsupportedTraversalBudget,
             RuleIds.UnsupportedOptionUnlisted,
+            RuleIds.UnsupportedAttributeUnlisted,
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
         },
         RecordedNodeKind.Dictionary => new[]
         {
@@ -185,6 +199,8 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedMetadataUnavailable,
             RuleIds.UnsupportedTraversalBudget,
             RuleIds.UnsupportedOptionUnlisted,
+            RuleIds.UnsupportedAttributeUnlisted,
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
         },
         RecordedNodeKind.Scalar => new[]
         {
@@ -195,11 +211,15 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedEnumWireUnresolved,
             RuleIds.UnsupportedShapeEvidenceMissing,
             RuleIds.UnsupportedOptionUnlisted,
+            RuleIds.UnsupportedAttributeUnlisted,
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
         },
         RecordedNodeKind.Reference => new[]
         {
             RuleIds.SupportedReference,
             RuleIds.UnsupportedMetadataUnavailable,
+            RuleIds.UnsupportedAttributeUnlisted,
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
         },
         RecordedNodeKind.Unavailable => new[]
         {
@@ -308,6 +328,28 @@ internal static class ContractAllowlists
     public static IReadOnlyList<string> OptionValueNames { get; } =
         OptionValues.Select(static value => value.Display).ToArray();
 
+    /// <summary>
+    /// The declared JSON attribute facts accepted by the classifier, derived from the measured contract
+    /// surfaces rather than copied into a second list.
+    /// </summary>
+    public static IReadOnlyList<RecordedAttributeFact> AttributeValues { get; } =
+        DeclaredAttributeFacts.MeasuredValues;
+
+    /// <summary>The stable declared-attribute names compared with the documentation.</summary>
+    public static IReadOnlyList<string> AttributeValueNames { get; } =
+        AttributeValues.Select(static value => value.Display).ToArray();
+
+    /// <summary>
+    /// The observable enum converter configurations accepted by the matrix, derived from the committed
+    /// converter profiles rather than from converter private state.
+    /// </summary>
+    public static IReadOnlyList<RecordedConverterConfiguration> ConverterConfigurations { get; } =
+        JsonContractOptions.MeasuredConverterConfigurations;
+
+    /// <summary>The stable converter-configuration values compared with the documentation.</summary>
+    public static IReadOnlyList<string> ConverterConfigurationNames { get; } =
+        ConverterConfigurations.Select(static value => value.Display).ToArray();
+
     /// <summary>Whether the type ships in the framework <c>System.Text.Json</c> assembly.</summary>
     public static bool IsFrameworkAssembly(Type type) => type.Assembly == FrameworkAssemblyAnchor.Assembly;
 
@@ -331,6 +373,14 @@ internal static class ContractAllowlists
         return OptionValues.Any(entry =>
             entry.Kind == kind && string.Equals(entry.Value, value, StringComparison.Ordinal));
     }
+
+    /// <summary>Whether a reflection-declared JSON attribute fact is on the measured allowlist.</summary>
+    public static bool IsAllowlistedAttribute(RecordedAttributeFact attribute) =>
+        AttributeValues.Any(allowlisted => string.Equals(allowlisted.Display, attribute.Display, StringComparison.Ordinal));
+
+    /// <summary>Whether a probed enum converter configuration is on the measured allowlist.</summary>
+    public static bool IsAllowlistedConverterConfiguration(RecordedConverterConfiguration configuration) =>
+        ConverterConfigurations.Contains(configuration);
 
     /// <summary>
     /// Whether a converter type is a framework converter on the allowlist. Converter provenance is decided by

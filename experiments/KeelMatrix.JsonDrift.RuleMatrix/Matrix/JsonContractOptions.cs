@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 
 namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 
@@ -60,5 +61,22 @@ internal static class JsonContractOptions
         .Distinct()
         .OrderBy(static value => value.Kind)
         .ThenBy(static value => value.Value, StringComparer.Ordinal)
+        .ToArray();
+
+    /// <summary>
+    /// The allowlisted enum converter configurations measured by executing their integer-token reads. The
+    /// profiles are the source of truth for ContractAllowlists and for the converter-configuration checks.
+    /// </summary>
+    public static IReadOnlyList<RecordedConverterConfiguration> MeasuredConverterConfigurations { get; } =
+        new (JsonSerializerOptions Options, Type EnumType)[]
+        {
+            (Reflection(), typeof(OrderState)),
+            (Reflection(new JsonStringEnumConverter()), typeof(OrderState)),
+            (Reflection(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false)), typeof(OrderState)),
+        }
+        .Select(profile => ConverterConfigurationFacts.Probe(profile.Options, profile.EnumType)!)
+        .Distinct()
+        .OrderBy(static value => value.ConverterType, StringComparer.Ordinal)
+        .ThenBy(static value => value.IntegerTokensAccepted)
         .ToArray();
 }

@@ -47,6 +47,12 @@ internal enum MetadataSourceKind
 
     /// <summary>The wire-affecting setting values of the <c>JsonSerializerOptions</c> the contract is recorded under.</summary>
     OptionsSettings,
+
+    /// <summary>JSON serialization attributes declared on visited contract types and recorded members.</summary>
+    DeclaredAttributes,
+
+    /// <summary>Observable configuration probed by executing an allowlisted framework enum converter.</summary>
+    ConverterConfiguration,
 }
 
 /// <summary>
@@ -75,6 +81,8 @@ internal static class MetadataSourceRules
         MetadataSourceKind.DictionaryValueTypes => "dictionary-value-types",
         MetadataSourceKind.PolymorphismDerivedTypes => "polymorphism-derived-types",
         MetadataSourceKind.OptionsSettings => "options-settings",
+        MetadataSourceKind.DeclaredAttributes => "declared-attributes",
+        MetadataSourceKind.ConverterConfiguration => "converter-configuration",
     };
 
     /// <summary>What the source discovers, in the developer-facing wording of the path inventory.</summary>
@@ -93,6 +101,8 @@ internal static class MetadataSourceRules
         MetadataSourceKind.DictionaryValueTypes => "the value type of a visited dictionary contract",
         MetadataSourceKind.PolymorphismDerivedTypes => "the types registered in JsonPolymorphismOptions.DerivedTypes",
         MetadataSourceKind.OptionsSettings => "the wire-affecting setting values of JsonSerializerOptions",
+        MetadataSourceKind.DeclaredAttributes => "the declared System.Text.Json.Serialization.JsonAttribute facts on contract types and members",
+        MetadataSourceKind.ConverterConfiguration => "the integer-token acceptance observed by executing an allowlisted enum converter",
     };
 
     /// <summary>
@@ -173,6 +183,14 @@ internal static class MetadataSourceRules
         MetadataSourceKind.OptionsSettings => new[]
         {
             RuleIds.UnsupportedOptionUnlisted,
+        },
+        MetadataSourceKind.DeclaredAttributes => new[]
+        {
+            RuleIds.UnsupportedAttributeUnlisted,
+        },
+        MetadataSourceKind.ConverterConfiguration => new[]
+        {
+            RuleIds.UnsupportedConverterConfigurationUnlisted,
         },
     };
 }

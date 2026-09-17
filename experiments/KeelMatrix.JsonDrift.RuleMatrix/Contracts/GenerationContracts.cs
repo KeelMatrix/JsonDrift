@@ -26,6 +26,12 @@ internal sealed class TelemetryBatch
 [JsonSerializable(typeof(ShipmentRequired))]
 [JsonSerializable(typeof(ProfileV1Nullable))]
 [JsonSerializable(typeof(ProfileV2NonNullable))]
+[JsonSerializable(typeof(StrictNumberType))]
+[JsonSerializable(typeof(StrictNumberMember))]
+[JsonSerializable(typeof(WriteAsStringNumberType))]
+[JsonSerializable(typeof(WriteAsStringNumberMember))]
+[JsonSerializable(typeof(NeverIgnoredMember))]
+[JsonSerializable(typeof(DefaultIgnoredMember))]
 internal sealed partial class TelemetryContext : JsonSerializerContext
 {
 }

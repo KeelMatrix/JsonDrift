@@ -119,7 +119,7 @@ else is reported **unsupported**:
   metadata can replace member converters without a declared marker;
 * a scalar type that is not on the framework scalar allowlist;
 * a `JsonSerializerOptions` value that is not one of the values the committed checks are measured under,
-  including a setting the contract model does not name at all (`unsupported.option-unlisted`);
+  among the recorded option families (`unsupported.option-unlisted`);
 * a traversal budget that was exhausted, metadata the framework cannot produce, or any node the traversal
   could not classify.
 
@@ -172,6 +172,8 @@ the run applies is checked against the catalogue by `D06.classification-rules.ob
 | `unsupported.scalar-unlisted` | Unsupported | The recorded scalar type is not on the scalar allowlist. |
 | `unsupported.enum-wire-unresolved` | Unsupported | The wire name of an enum member could not be produced from the recorded framework converter. |
 | `unsupported.option-unlisted` | Unsupported | A recorded `JsonSerializerOptions` value is not one of the values the committed checks are measured under. |
+| `unsupported.attribute-unlisted` | Unsupported | A declared `JsonAttribute` or one of its argument values is not on the measured declared-attribute allowlist. |
+| `unsupported.converter-configuration-unlisted` | Unsupported | An allowlisted framework enum converter's probed observable configuration is not on the measured converter-configuration allowlist. |
 
 The allowlists the supported rules rest on are compared with the lists in code by
 `D06.allowlist.documented`, and the framework is asked to confirm that every allowlisted scalar type resolves
@@ -190,9 +192,15 @@ Allowlisted metadata resolvers: System.Text.Json.Serialization.Metadata.DefaultJ
 
 Allowlisted serializer option values: numberHandling=Strict, referenceHandler=Default, defaultIgnoreCondition=Never, defaultIgnoreCondition=WhenWritingNull, unmappedMemberHandling=Skip, propertyNameCaseInsensitive=false, readCommentHandling=Disallow, allowTrailingCommas=false, maxDepth=0, dictionaryKeyPolicy=Default, ignoreReadOnlyProperties=false, ignoreReadOnlyFields=false, propertyNamingPolicy=Default, respectNullableAnnotations=false, respectRequiredConstructorParameters=false, preferredObjectCreationHandling=Replace
 
+Allowlisted declared JSON attributes: System.Text.Json.Serialization.JsonConverterAttribute($0=System.Text.Json.Serialization.JsonStringEnumConverter) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.CatV1Extended,$1=cat) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.DogV1,$1=dog) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.DogV1Extended,$1=dog) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.DogV2Renamed,$1=canine) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.DogV3Property,$1=canine) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.PolyEnumLeaf,$1=enum) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.ShiftLeafNumeric,$1=shift) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=KeelMatrix.JsonDrift.RuleMatrix.Contracts.ShiftLeafText,$1=shift) | System.Text.Json.Serialization.JsonExtensionDataAttribute | System.Text.Json.Serialization.JsonIgnoreAttribute | System.Text.Json.Serialization.JsonIgnoreAttribute(Condition=Never) | System.Text.Json.Serialization.JsonNumberHandlingAttribute($0=Strict) | System.Text.Json.Serialization.JsonPolymorphicAttribute(TypeDiscriminatorPropertyName=$type) | System.Text.Json.Serialization.JsonPolymorphicAttribute(TypeDiscriminatorPropertyName=kind) | System.Text.Json.Serialization.JsonPropertyNameAttribute($0=accountId) | System.Text.Json.Serialization.JsonPropertyNameAttribute($0=account_id) | System.Text.Json.Serialization.JsonRequiredAttribute
+
+Allowlisted enum converter configurations: converter=System.Text.Json.Serialization.JsonStringEnumConverter,integerTokensAccepted=false | converter=System.Text.Json.Serialization.JsonStringEnumConverter,integerTokensAccepted=true | converter=default-enum-converter,integerTokensAccepted=true
+
 An enum contract is the one framework construct that is classified without a converter being declared: a
 plain enum is written by the framework numeric enum converter, and an enum converter on the allowlist is
-recorded as the enum's effective converter. A converter registered on the serializer options is classified
+recorded as the enum's effective converter. For an allowlisted enum converter, integer-token acceptance is
+derived by executing a representative integer read and is recorded in the enum wire record; private
+converter state is never inspected. A converter registered on the serializer options is otherwise classified
 from its declared type identity alone - applicability is not probed - because a converter factory can claim
 any type.
 
@@ -272,6 +280,34 @@ classification, because no committed check classifies a contract under it. Such 
 unsupported, which is the safe direction: the option allowlist never claims a value the matrix only measured
 through the behaviour of a probe, and every option family keeps a value the adversarial set can attack.
 
+### Declared serialization attributes
+
+The traversal enumerates declared reflection attributes on every recorded contract type and member, then
+filters that enumeration to attributes assignable to `System.Text.Json.Serialization.JsonAttribute`. The
+recorded fact includes the attribute type and every constructor/named argument value. The canonical document
+records the same facts in type and member records, and `unsupported.attribute-unlisted` denies any declaration
+or argument value outside the measured allowlist. The allowlist is derived from `DeclaredAttributeFacts`
+measured surfaces and is checked against the facts accepted by the executed matrix in
+`D06.allowlist.attribute-values`.
+
+The measured accepted declarations include the existing property-name, requiredness, extension-data,
+polymorphism, and allowlisted enum-converter attributes, plus `JsonNumberHandling(Strict)` and
+`JsonIgnore(Condition = Never)`. `JsonNumberHandling(WriteAsString)` is deliberately unlisted: both type-level
+and member-level declarations are recorded, change the canonical document, change the wire token, and are
+denied. `JsonIgnore(Condition = WhenWritingDefault)` is likewise recorded, changes the document, and is denied.
+The executed source-generated checks prove that the same declared facts are read for reflection and
+source-generated `JsonTypeInfo`.
+
+### Allowlisted enum converter configuration
+
+For an allowlisted framework enum converter, `WriteEnumToken` and the integer-token acceptance fact are both
+derived by executing the effective converter. The canonical enum wire record carries the converter identity
+and the measured `integerTokensAccepted` result. The accepted configurations are the default numeric enum
+converter with integer acceptance, `JsonStringEnumConverter()` with integer acceptance, and
+`JsonStringEnumConverter(allowIntegerValues: false)` without integer acceptance. The two string-enum
+configurations produce different canonical documents, and an allowlisted but unmeasured configuration such as
+`JsonNumberEnumConverter<TEnum>` is reported through `unsupported.converter-configuration-unlisted`.
+
 ### Adversarial checks
 
 The adversarial set `A01.adversarial.*` tries to keep opaque metadata behind a path no rule names, and every
@@ -306,6 +342,10 @@ case must fail closed. The recorded outcomes are:
 | `A01.adversarial.options-respect-nullable-annotations` | `RespectNullableAnnotations = true` | Unsupported |
 | `A01.adversarial.options-respect-required-constructor-parameters` | `RespectRequiredConstructorParameters = true` | Unsupported |
 | `A01.adversarial.options-preferred-object-creation-handling` | `PreferredObjectCreationHandling = Populate` | Unsupported |
+| `A01.adversarial.attributes-number-handling-type` | A type-level `[JsonNumberHandling(WriteAsString)]` declaration | Unsupported |
+| `A01.adversarial.attributes-number-handling-member` | A member-level `[JsonNumberHandling(WriteAsString)]` declaration | Unsupported |
+| `A01.adversarial.attributes-ignore-condition` | A member-level `[JsonIgnore(Condition = WhenWritingDefault)]` declaration | Unsupported |
+| `A01.adversarial.converter-configuration-unlisted` | An allowlisted `JsonNumberEnumConverter<TEnum>` configuration outside the measured probe set | Unsupported |
 
 ### Metadata discovery path inventory
 
@@ -323,6 +363,8 @@ matching path binding fails the matrix instead of passing by default.
 | `member-custom-converter` | `R14.converter.opaque-member-custom-converter` | The converter the metadata provider assigned to a member without an attribute. Checked against framework provenance exactly like an attribute converter. |
 | `options-converters` | `R14.converter.opaque-root-from-options` | Every converter registered in `JsonSerializerOptions.Converters`, recorded in declared converter type order. Bounded by the visited-type set. |
 | `options-settings` | `A01.adversarial.options-number-handling` | The value of every `JsonSerializerOptions` setting that changes the wire or the reading, recorded once per contract in a fixed family order and compared with the option allowlist. Bounded because every family is read from the same option set for every visited node, and a value the allowlist does not name is reported unsupported. |
+| `declared-attributes` | `A01.adversarial.attributes-number-handling-type` | Every declared attribute assignable to `System.Text.Json.Serialization.JsonAttribute` is enumerated from the contract type and each recorded member, then filtered by the measured attribute allowlist. Reflection is the source for both reflection and source-generated `JsonTypeInfo`; the source-generated limitation is documented below. |
+| `converter-configuration` | `R08.enum.converter-configuration` | Only allowlisted framework enum converters are probed. Their integer-token acceptance is derived by executing a representative read and compared with the measured configuration allowlist; unknown and opaque converters remain unsupported. |
 | `enumerable-element-types` | `R14.converter.opaque-collection-element` | The element type of every visited array or enumerable type, resolved from the framework element type with the generic shape as the fallback. Bounded by the traversal budget. |
 | `dictionary-key-types` | `R14.converter.opaque-dictionary-key` | The key type of every visited dictionary type. Bounded by the traversal budget. |
 | `dictionary-value-types` | `R14.converter.opaque-dictionary-value` | The value type of every visited dictionary type. Bounded by the traversal budget. |
@@ -379,6 +421,12 @@ contracts that keep the same shape and differ only in an accepted option value p
 (`D08.canonical-document.options-recorded`), and an option value the allowlist does not accept is recorded with
 the unsupported verdict and its rule (`unsupported.option-unlisted`).
 
+Type and member records also carry the enumerated declared JSON serialization attributes, including their
+argument values. An unlisted declaration is recorded with `unsupported.attribute-unlisted`; an accepted
+declaration is still visible even when it has no wire effect. Enum wire records additionally carry the
+allowlisted converter identity and the executed integer-token acceptance result, so the two measured
+`JsonStringEnumConverter` configurations cannot collapse to one canonical document.
+
 A registered derived type is described with its discriminator, its type name, its support state, and its
 recorded content: its members, its own element, key, or value types when the derived type is a collection or
 a dictionary, and its own registered derived types when the derived type is itself a polymorphic base. A
@@ -394,9 +442,9 @@ byte-identical.
 | D03 | A contract that refers to its own type canonicalizes deterministically | `D03.canonical-document.recursive-type`. |
 | D04 | The counts quoted by the scope documentation are derived from the matrix output rather than counted by hand | `D04.matrix.check-count`, `D04.policy.full-compatible-count`, `D04.policy.unsupported-count`. |
 | D05 | The document records the wire identity of every enum member: its serialized name when the applied framework converter writes strings, or its numeric value. The name is produced by the effective converter, so a member-level converter declaration takes precedence over the contract options, and two contracts whose wire is identical record identical identities | `R08.enum.string-tokens.wire-identity`, `R08.enum.numeric.wire-identity`, `R08.enum.naming-policy.document`, `R08.enum.member-rename.document`, `R08.enum.member-level.wire-identity`. |
-| D06 | Every metadata-resolution path the classifier walks is inventoried, documented, covered by an executed check, and bounded; every classification rule, node kind, and allowlist of the deny-by-default classifier - including the serializer option allowlist - is bound to this document and to the values the executed checks were accepted under; and a source, node kind, or rule added without coverage fails the gate | `D06.discovery-paths.inventory`, `D06.classification-rules.documented`, `D06.classification-rules.observed`, `D06.allowlist.documented`, `D06.allowlist.verified`, `D06.allowlist.option-values`, together with the per-path checks listed in the path inventory. |
+| D06 | Every metadata-resolution path the classifier walks is inventoried, documented, covered by an executed check, and bounded; every classification rule, node kind, and allowlist of the deny-by-default classifier - including serializer options, declared attributes, and converter configurations - is bound to this document and to the values the executed checks were accepted under; and a source, node kind, or rule added without coverage fails the gate | `D06.discovery-paths.inventory`, `D06.classification-rules.documented`, `D06.classification-rules.observed`, `D06.allowlist.documented`, `D06.allowlist.verified`, `D06.allowlist.option-values`, `D06.allowlist.attribute-values`, `D06.allowlist.converter-configurations`, together with the per-path checks listed in the path inventory. |
 | D07 | A registered derived type's member content, element, key, and value types, and nested registrations are part of the canonical document | `R10.polymorphism.derived-member.document`, `R14.converter.opaque-polymorphic-derived-member`, `R14.converter.derived-shape.document`. |
-| D08 | The canonical document records the serializer option values the contract was recorded under, so a change of an accepted option value is a document difference instead of a pair of byte-identical documents | `D08.canonical-document.options-recorded`. |
+| D08 | The canonical document records serializer option values, declared JSON attributes, and probed enum converter configuration, so a change of an accepted recorded fact is a document difference instead of a pair of byte-identical documents | `D08.canonical-document.options-recorded`, `D08.canonical-document.attributes-recorded`, `R08.enum.converter-configuration`. |
 
 ## Documented limitations
 
@@ -430,8 +478,14 @@ byte-identical.
    member whose wire name cannot be produced is reported as unsupported; that member keeps the contract
    unsupported through the aggregate support state.
 6. **The walk records framework metadata, not application behavior.** Classification is a statement about the
-   recorded contract metadata: it does not run the application's converters, and the only serializer call it
-   performs while recording is the framework enum converter that produces a wire name.
+   recorded contract metadata: it does not run the application's converters, and the only serializer calls it
+   performs while recording are the allowlisted framework enum converter's wire-name write and its representative
+   integer-token read. `JsonTypeInfo` does not expose reflection-declared attributes for a source-generated
+   context. The matrix therefore reads the declared `JsonAttribute` facts from the generated contract type and
+   its reflected members, and executes one check per new attribute family for both reflection and source-generated
+   metadata. Attributes declared only on the context itself (such as `JsonSourceGenerationOptions` and
+   `JsonSerializable`) are not treated as contract-type declarations; their effective option values are measured
+   through `JsonTypeInfo.Options` instead.
 7. **Baseline storage, limits, and version migration are not covered here.** This document defines
    classification semantics only.
 

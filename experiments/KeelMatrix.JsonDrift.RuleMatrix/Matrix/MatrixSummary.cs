@@ -8,16 +8,16 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 internal static class MatrixSummary
 {
     /// <summary>Checks this class contributes, plus the coverage checks that run after it.</summary>
-    public const int SummaryCheckCount = 9;
+    public const int SummaryCheckCount = 11;
 
     /// <summary>Executed checks in the matrix, asserted by <c>D04.matrix.check-count</c>.</summary>
-    public const int ExpectedCheckCount = 225;
+    public const int ExpectedCheckCount = 235;
 
     /// <summary>Measured changes compatible under both <c>ReaderBackward</c> and <c>WriterForward</c>.</summary>
     public const int ExpectedFullCompatibleCount = 6;
 
     /// <summary>Executed checks that report unsupported converter metadata.</summary>
-    public const int ExpectedUnsupportedCount = 62;
+    public const int ExpectedUnsupportedCount = 66;
 
     public static IEnumerable<CheckOutcome> Run(IReadOnlyList<CheckOutcome> checks)
     {

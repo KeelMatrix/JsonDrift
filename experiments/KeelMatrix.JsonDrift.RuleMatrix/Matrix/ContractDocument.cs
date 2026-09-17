@@ -109,4 +109,8 @@ internal static class ContractDocument
     /// <summary>The recorded token of one enum member inside a recorded wire identity, without quotes.</summary>
     public static string? EnumWireToken(JsonObject? wire, string enumMemberName) =>
         wire?[enumMemberName]?.ToJsonString().Trim('"');
+
+    /// <summary>The probed integer-token behavior recorded beside an enum wire identity.</summary>
+    public static bool? EnumIntegerTokensAccepted(JsonObject? wire) =>
+        wire?["integerTokensAccepted"]?.GetValue<bool>();
 }

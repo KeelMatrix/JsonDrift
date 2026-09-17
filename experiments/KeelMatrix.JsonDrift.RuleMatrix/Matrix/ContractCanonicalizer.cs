@@ -81,6 +81,7 @@ internal static class ContractCanonicalizer
             ["path"] = node.Path,
             ["rule"] = verdict.RuleId,
             ["supported"] = verdict.Supported,
+            ["declaredAttributes"] = DescribeAttributes(node.DeclaredAttributes),
         };
 
         if (!verdict.Supported && verdict.Reason is not null)
@@ -179,6 +180,7 @@ internal static class ContractCanonicalizer
             ["getNullable"] = member.GetNullable,
             ["setNullable"] = member.SetNullable,
             ["extensionData"] = member.ExtensionData,
+            ["declaredAttributes"] = DescribeAttributes(member.DeclaredAttributes),
             ["rule"] = verdict.RuleId,
             ["supported"] = verdict.Supported,
         };
@@ -226,12 +228,47 @@ internal static class ContractCanonicalizer
     {
         var identity = new JsonObject();
 
+        if (wire.ConverterConfiguration is RecordedConverterConfiguration configuration)
+        {
+            identity["converterType"] = configuration.ConverterType;
+            identity["integerTokensAccepted"] = configuration.IntegerTokensAccepted;
+        }
+
         foreach (RecordedEnumMember member in wire.Members)
         {
             identity[member.Name] = member.IsString ? JsonValue.Create(member.Token) : NumericToken(member.Token);
         }
 
         return identity;
+    }
+
+    private static JsonArray DescribeAttributes(IReadOnlyList<RecordedAttributeFact> attributes)
+    {
+        var described = new JsonArray();
+
+        foreach (RecordedAttributeFact attribute in attributes
+            .OrderBy(static attribute => attribute.AttributeType, StringComparer.Ordinal)
+            .ThenBy(static attribute => attribute.Display, StringComparer.Ordinal))
+        {
+            var arguments = new JsonArray();
+
+            foreach (RecordedAttributeArgument argument in attribute.Arguments)
+            {
+                arguments.Add(new JsonObject
+                {
+                    ["name"] = argument.Name,
+                    ["value"] = argument.Value,
+                });
+            }
+
+            described.Add(new JsonObject
+            {
+                ["type"] = attribute.AttributeType,
+                ["arguments"] = arguments,
+            });
+        }
+
+        return described;
     }
 
     private static JsonValue? NumericToken(string token) =>

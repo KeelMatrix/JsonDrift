@@ -16,6 +16,8 @@ internal sealed class TraversalInventory
     private readonly HashSet<RecordedNodeKind> nodeKinds = new();
     private readonly HashSet<string> rules = new(StringComparer.Ordinal);
     private readonly HashSet<RecordedOptionValue> acceptedOptionValues = new();
+    private readonly HashSet<string> acceptedAttributes = new(StringComparer.Ordinal);
+    private readonly HashSet<RecordedConverterConfiguration> acceptedConverterConfigurations = new();
 
     public void RecordSource(MetadataSourceKind source)
     {
@@ -56,6 +58,28 @@ internal sealed class TraversalInventory
         }
     }
 
+    /// <summary>Records one declared attribute the classifier accepted.</summary>
+    public void RecordAcceptedAttribute(RecordedAttributeFact value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        lock (gate)
+        {
+            acceptedAttributes.Add(value.Display);
+        }
+    }
+
+    /// <summary>Records one converter configuration the classifier accepted.</summary>
+    public void RecordAcceptedConverterConfiguration(RecordedConverterConfiguration value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        lock (gate)
+        {
+            acceptedConverterConfigurations.Add(value);
+        }
+    }
+
     /// <summary>The discovery sources the traversal actually visited.</summary>
     public IReadOnlyList<MetadataSourceKind> VisitedSources()
     {
@@ -91,6 +115,27 @@ internal sealed class TraversalInventory
             return acceptedOptionValues
                 .OrderBy(static value => value.Kind)
                 .ThenBy(static value => value.Value, StringComparer.Ordinal)
+                .ToArray();
+        }
+    }
+
+    /// <summary>The declared attribute facts the executed checks were accepted under.</summary>
+    public IReadOnlyList<string> AcceptedAttributes()
+    {
+        lock (gate)
+        {
+            return acceptedAttributes.OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+        }
+    }
+
+    /// <summary>The converter configurations the executed checks were accepted under.</summary>
+    public IReadOnlyList<RecordedConverterConfiguration> AcceptedConverterConfigurations()
+    {
+        lock (gate)
+        {
+            return acceptedConverterConfigurations
+                .OrderBy(static value => value.ConverterType, StringComparer.Ordinal)
+                .ThenBy(static value => value.IntegerTokensAccepted)
                 .ToArray();
         }
     }
