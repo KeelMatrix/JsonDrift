@@ -10,6 +10,7 @@
     <Description>Detect breaking or unsupported System.Text.Json contract changes from the serializer metadata your .NET app actually uses.</Description>
     <PackageTags>system-text-json;json;contract;compatibility;schema-evolution;testing;ci;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/KeelMatrix/JsonDrift</RepositoryUrl>
     <PackageProjectUrl>https://github.com/KeelMatrix/JsonDrift</PackageProjectUrl>
@@ -44,6 +45,8 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildProjectDirectory)\..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildProjectDirectory)\..\..\icon.png" Condition="Exists('$(MSBuildProjectDirectory)\..\..\icon.png')" Pack="true" PackagePath="icon.png" />
   </ItemGroup>
 
   <ItemGroup>

@@ -16,6 +16,34 @@ foundation library only; comparison, reporting, and assertion APIs are deferred 
 - Baselines use canonical JSON format version `1`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
 
+## Install and first baseline
+
+Install the package into a `net8.0` test project:
+
+```pwsh
+dotnet add package KeelMatrix.JsonDrift --version 0.1.0
+```
+
+Use the application's actual source-generated metadata (or the reflection/options overload) to create and
+read an explicit baseline:
+
+```csharp
+JsonTypeInfo<OrderEvent> contract = MyJsonContext.Default.OrderEvent;
+const string path = "contracts/order-event.json";
+
+JsonContract extracted = JsonDrift.Extract(contract);
+JsonBaseline.Create(contract, path, overwrite: false);
+JsonContract baseline = JsonBaseline.Read(path);
+JsonCompatibility policy = JsonCompatibility.ReaderBackward;
+
+// After an intentional serializer change, replace the committed baseline explicitly:
+JsonBaseline.Update(contract, path, overwrite: true);
+```
+
+The A1 package extracts, creates, updates, and reads canonical contracts and defines the
+`JsonCompatibility.ReaderBackward` policy. It does not yet compare two contracts, produce drift reports, or
+provide assertion helpers; those capabilities are outside this shipped foundation slice.
+
 The measured classification rules and their evidence remain in
 [docs/compatibility-rules.md](docs/compatibility-rules.md). The initial-release decisions are in
 [docs/initial-release-scope.md](docs/initial-release-scope.md).

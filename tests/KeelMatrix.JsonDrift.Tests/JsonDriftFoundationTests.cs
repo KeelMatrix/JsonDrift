@@ -109,6 +109,145 @@ public sealed partial class JsonDriftFoundationTests
     }
 
     [Fact]
+    public void ReadRejectsTruncatedIncompleteUnknownDuplicateAndInconsistentDocuments()
+    {
+        using TemporaryDirectory directory = new();
+        string canonical = JsonDrift.Extract<SimpleEnvelope>(ReflectionOptions()).CanonicalJson;
+
+        string truncatedPath = Path.Combine(directory.Path, "truncated.json");
+        File.WriteAllText(truncatedPath, canonical[..^2] + "\n", new UTF8Encoding(false));
+        Assert.IsType<InvalidDataException>(Assert.Throws<InvalidDataException>(() => JsonBaseline.Read(truncatedPath)));
+
+        AssertReadFailure(
+            directory,
+            "missing-field.json",
+            canonical.Replace("    \"path\": \"root\",\n", string.Empty, StringComparison.Ordinal),
+            "Baseline root is missing required property 'path'.");
+
+        AssertReadFailure(
+            directory,
+            "unknown-field.json",
+            canonical.Replace("  \"overallSupported\": true\n", "  \"unknown\": true,\n  \"overallSupported\": true\n", StringComparison.Ordinal),
+            "Baseline top-level contains an unknown property.");
+
+        AssertReadFailure(
+            directory,
+            "duplicate-member.json",
+            canonical.Replace("  \"formatVersion\": 1,\n", "  \"formatVersion\": 1,\n  \"formatVersion\": 1,\n", StringComparison.Ordinal),
+            "Baseline contains duplicate JSON members.");
+
+        AssertReadFailure(
+            directory,
+            "false-overall-support.json",
+            canonical.Replace("  \"overallSupported\": true\n", "  \"overallSupported\": false\n", StringComparison.Ordinal),
+            "Baseline has inconsistent overallSupported and root support state.");
+
+        AssertReadFailure(
+            directory,
+            "supported-with-reason.json",
+            canonical.Replace("    \"supported\": true,\n    \"declaredAttributes\"", "    \"supported\": true,\n    \"reason\": \"forged\",\n    \"declaredAttributes\"", StringComparison.Ordinal),
+            "Baseline root has inconsistent support and reason state.");
+    }
+
+    [Fact]
+    public void ReadAcceptsDocumentExactlyAtTheConfiguredByteLimitAndRejectsOneByteOver()
+    {
+        using TemporaryDirectory directory = new();
+        string path = Path.Combine(directory.Path, "bounded.json");
+        byte[] canonical = JsonDrift.Extract<SimpleEnvelope>(ReflectionOptions()).GetCanonicalUtf8();
+        File.WriteAllBytes(path, canonical);
+
+        JsonContract read = JsonBaseline.Read(path, new JsonBaselineLimits(maximumBytes: canonical.Length));
+        Assert.Equal(canonical, read.GetCanonicalUtf8());
+
+        File.WriteAllBytes(path, canonical.Concat(new byte[] { (byte)' ' }).ToArray());
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() =>
+            JsonBaseline.Read(path, new JsonBaselineLimits(maximumBytes: canonical.Length)));
+        Assert.Equal($"Baseline exceeds the maximum size of {canonical.Length:N0} bytes.", error.Message);
+    }
+
+    [Fact]
+    public async Task ConcurrentNonOverwritingCreatesHaveExactlyOneWinner()
+    {
+        using TemporaryDirectory directory = new();
+        string path = Path.Combine(directory.Path, "race.json");
+        JsonTypeInfo<SimpleEnvelope> typeInfo = (JsonTypeInfo<SimpleEnvelope>)ReflectionOptions().GetTypeInfo(typeof(SimpleEnvelope));
+
+        Task<bool>[] attempts = Enumerable.Range(0, 32)
+            .Select(_ => Task.Run(() =>
+            {
+                try
+                {
+                    JsonBaseline.Create(typeInfo, path, overwrite: false);
+                    return true;
+                }
+                catch (IOException)
+                {
+                    return false;
+                }
+            }))
+            .ToArray();
+
+        bool[] winners = await Task.WhenAll(attempts);
+
+        Assert.Equal(1, winners.Count(static winner => winner));
+        Assert.True(File.Exists(path));
+        Assert.Equal(JsonDrift.Extract<SimpleEnvelope>(ReflectionOptions()).CanonicalJson, JsonBaseline.Read(path).CanonicalJson);
+    }
+
+    [Fact]
+    public async Task UpdateThatLosesAConcurrentDeleteFailsWithoutCreatingABaseline()
+    {
+        using TemporaryDirectory directory = new();
+        JsonTypeInfo<SimpleEnvelope> typeInfo = (JsonTypeInfo<SimpleEnvelope>)ReflectionOptions().GetTypeInfo(typeof(SimpleEnvelope));
+        bool observedDeleteWinner = false;
+
+        for (int attempt = 0; attempt < 64 && !observedDeleteWinner; attempt++)
+        {
+            string path = Path.Combine(directory.Path, $"update-race-{attempt}.json");
+            JsonBaseline.Create(typeInfo, path, overwrite: false);
+            using var start = new ManualResetEventSlim(false);
+
+            Task<Exception?> update = Task.Run(() =>
+            {
+                start.Wait();
+                try
+                {
+                    JsonBaseline.Update(typeInfo, path, overwrite: true);
+                    return null;
+                }
+                catch (Exception exception)
+                {
+                    return exception;
+                }
+            });
+            Task delete = Task.Run(() =>
+            {
+                start.Wait();
+                File.Delete(path);
+            });
+
+            start.Set();
+            Exception? updateError = await update;
+            await delete;
+
+            if (updateError is IOException)
+            {
+                observedDeleteWinner = true;
+                Assert.False(File.Exists(path));
+                Assert.Contains("atomically update baseline", updateError.Message, StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Null(updateError);
+                File.Delete(path);
+            }
+        }
+
+        Assert.True(observedDeleteWinner, "The race did not exercise the concurrent-delete loser path.");
+    }
+
+    [Fact]
     public void ReadRejectsBomAndCrlfBaselines()
     {
         using TemporaryDirectory directory = new();

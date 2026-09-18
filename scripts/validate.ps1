@@ -23,6 +23,9 @@ $manifestPath = Join-Path $PSScriptRoot 'validation-manifest.json'
 $packageOutput = Join-Path $repoRoot 'artifacts/package'
 $canonicalRoot = Join-Path $repoRoot 'artifacts/canonical'
 $canonicalFileName = 'order-envelope.contract.json'
+$expectedPackageId = 'KeelMatrix.JsonDrift'
+$expectedPackageVersion = '0.1.0'
+$requiredIconPath = Join-Path $repoRoot 'icon.png'
 $executed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $failures = 0
 
@@ -74,6 +77,114 @@ function Get-Sha256 {
     }
     finally {
         $sha.Dispose()
+    }
+}
+
+function Get-ZipEntryBytes {
+    param(
+        [Parameter(Mandatory = $true)][System.IO.Compression.ZipArchive]$Archive,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $entry = $Archive.GetEntry($Name)
+    if ($null -eq $entry) {
+        throw "package is missing required entry: $Name"
+    }
+
+    $stream = $entry.Open()
+    $memory = [System.IO.MemoryStream]::new()
+    try {
+        $stream.CopyTo($memory)
+        return ,$memory.ToArray()
+    }
+    finally {
+        $memory.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Assert-PngIcon {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "required founder-owned icon is absent: $Path"
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -gt 200KB) {
+        throw "icon exceeds the 200 KB limit: $Path"
+    }
+
+    $signature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
+    if ($bytes.Length -lt 24 -or -not [System.Linq.Enumerable]::SequenceEqual([byte[]]$bytes[0..7], $signature)) {
+        throw "icon is not a PNG with a readable IHDR: $Path"
+    }
+
+    [uint32]$width = (([uint32]$bytes[16] -shl 24) -bor ([uint32]$bytes[17] -shl 16) -bor ([uint32]$bytes[18] -shl 8) -bor [uint32]$bytes[19])
+    [uint32]$height = (([uint32]$bytes[20] -shl 24) -bor ([uint32]$bytes[21] -shl 16) -bor ([uint32]$bytes[22] -shl 8) -bor [uint32]$bytes[23])
+    if ($width -ne 512 -or $height -ne 512) {
+        throw "icon must be exactly 512x512 pixels: $Path (actual ${width}x${height})"
+    }
+}
+
+function Assert-PackageArtifact {
+    param([Parameter(Mandatory = $true)][string]$PackagePath)
+
+    Add-Type -AssemblyName System.IO.Compression
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        $expectedFixedEntries = @(
+            '[Content_Types].xml',
+            '_rels/.rels',
+            "$expectedPackageId.nuspec",
+            'README.md',
+            'LICENSE',
+            'icon.png',
+            "lib/net8.0/$expectedPackageId.dll",
+            "lib/net8.0/$expectedPackageId.xml"
+        ) | Sort-Object
+        $actualEntries = @($archive.Entries | ForEach-Object FullName | Sort-Object)
+        $generatedMetadataEntries = @($actualEntries | Where-Object { $_ -match '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
+        $unexpectedEntries = @($actualEntries | Where-Object { $_ -cnotin $expectedFixedEntries -and $_ -notmatch '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
+        if ($generatedMetadataEntries.Count -ne 1 -or $unexpectedEntries.Count -ne 0 -or $actualEntries.Count -ne ($expectedFixedEntries.Count + 1)) {
+            throw "package entries differ from the explicit intended artifact set. Expected fixed entries: $($expectedFixedEntries -join ', '); expected one generated core-properties entry; actual: $($actualEntries -join ', ')"
+        }
+
+        Write-Host "package entries: $($actualEntries -join ', ')"
+
+        $nuspecBytes = Get-ZipEntryBytes -Archive $archive -Name "$expectedPackageId.nuspec"
+        $nuspec = [xml][System.Text.Encoding]::UTF8.GetString($nuspecBytes)
+        $metadata = $nuspec.SelectSingleNode("/*[local-name()='package']/*[local-name()='metadata']")
+        if ($null -eq $metadata) {
+            throw 'package nuspec is missing metadata'
+        }
+
+        if ($metadata.SelectSingleNode("*[local-name()='id']").InnerText -cne $expectedPackageId -or
+            $metadata.SelectSingleNode("*[local-name()='version']").InnerText -cne $expectedPackageVersion -or
+            $metadata.SelectSingleNode("*[local-name()='readme']").InnerText -cne 'README.md' -or
+            $metadata.SelectSingleNode("*[local-name()='icon']").InnerText -cne 'icon.png') {
+            throw 'package identity, version, README, or icon metadata is incorrect'
+        }
+
+        $license = $metadata.SelectSingleNode("*[local-name()='license']")
+        $repository = $metadata.SelectSingleNode("*[local-name()='repository']")
+        if ($null -eq $license -or $license.GetAttribute('type') -cne 'expression' -or $license.InnerText -cne 'MIT') {
+            throw 'package license metadata is missing or incorrect'
+        }
+
+        if ($null -eq $repository -or $repository.GetAttribute('type') -cne 'git' -or
+            $repository.GetAttribute('url') -cne 'https://github.com/KeelMatrix/JsonDrift') {
+            throw 'package repository metadata is missing or incorrect'
+        }
+
+        $physicalIcon = [System.IO.File]::ReadAllBytes($requiredIconPath)
+        $packedIcon = Get-ZipEntryBytes -Archive $archive -Name 'icon.png'
+        if (-not [System.Linq.Enumerable]::SequenceEqual($physicalIcon, $packedIcon)) {
+            throw 'packed icon bytes do not match the required repository icon'
+        }
+    }
+    finally {
+        $archive.Dispose()
     }
 }
 
@@ -154,8 +265,24 @@ Invoke-Check -Id 'canonical-determinism' -Description 'canonical bytes and encod
 }
 
 Invoke-Check -Id 'package' -Description 'packable product artifact' -Action {
+    Assert-PngIcon -Path $requiredIconPath
+    Remove-Item -LiteralPath $packageOutput -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $packageOutput -Force | Out-Null
     Invoke-Dotnet -Arguments @('pack', $productProject, '-c', 'Release', '--no-build', '--no-restore', '-o', $packageOutput)
+
+    $packages = @(Get-ChildItem -LiteralPath $packageOutput -File -Filter '*.nupkg' | Where-Object { $_.Name -notlike '*.symbols.nupkg' })
+    $symbols = @(Get-ChildItem -LiteralPath $packageOutput -File -Filter '*.snupkg')
+    if ($packages.Count -ne 1 -or $packages[0].Name -cne "$expectedPackageId.$expectedPackageVersion.nupkg") {
+        throw "expected exactly one product package named $expectedPackageId.$expectedPackageVersion.nupkg"
+    }
+
+    if ($symbols.Count -ne 1 -or $symbols[0].Name -cne "$expectedPackageId.$expectedPackageVersion.snupkg") {
+        throw "expected exactly one symbol package named $expectedPackageId.$expectedPackageVersion.snupkg"
+    }
+
+    Assert-PackageArtifact -PackagePath $packages[0].FullName
+    Write-Host "package: $($packages[0].FullName)"
+    Write-Host "symbols: $($symbols[0].FullName)"
 }
 
 Write-Section 'Manifest'
