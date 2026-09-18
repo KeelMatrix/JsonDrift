@@ -1,4 +1,4 @@
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// Classifies a dictionary key-type change. Reader compatibility depends on whether every key the earlier

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// The measured outcome of reading a document with a contract and writing it back with that same contract.
@@ -39,7 +39,7 @@ internal static class WireProbe
         {
             object? bound = JsonSerializer.Deserialize(document, contract);
             string rebounded = JsonSerializer.Serialize(bound, contract);
-            IReadOnlyList<string> differences = JsonSubsetComparer.Compare(document, rebounded);
+            IReadOnlyList<string> differences = WireSubsetComparer.Compare(document, rebounded);
 
             return new ReadOutcome(true, differences.Count == 0, differences, null, document, rebounded, null);
         }

@@ -2,9 +2,8 @@ using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// Reads declared JSON serialization attributes without naming individual attribute types in the walk. The
@@ -21,25 +20,9 @@ internal static class DeclaredAttributeFacts
     /// </summary>
     public static IReadOnlyList<Type> MeasuredTypes { get; } = new[]
     {
-        typeof(TicketV2Ignored),
-        typeof(AccountV1),
-        typeof(AccountV2),
-        typeof(AccountV2WithExtensionData),
-        typeof(OrderEnvelope),
-        typeof(ShipmentRequired),
-        typeof(SessionV2Ignored),
-        typeof(StateHolderMemberLevel),
-        typeof(Priority),
-        typeof(PolyEnumRoot),
-        typeof(AnimalV1),
-        typeof(AnimalV1Extended),
-        typeof(AnimalV2Renamed),
-        typeof(AnimalV3Property),
-        typeof(ShiftRootNumeric),
-        typeof(ShiftRootText),
-        typeof(StrictNumberType),
-        typeof(StrictNumberMember),
-        typeof(NeverIgnoredMember),
+        typeof(AllowlistedAttributeProbe),
+        typeof(AttributeProbePolymorphicRoot),
+        typeof(AttributeProbePolymorphicKindRoot),
     };
 
     /// <summary>
@@ -48,23 +31,7 @@ internal static class DeclaredAttributeFacts
     /// declaration is recorded and denied without widening the accepted attribute allowlist.
     /// </summary>
     public static IReadOnlyList<Type> InventoryTypes { get; } = MeasuredTypes
-        .Concat(new[]
-        {
-            typeof(WriteAsStringNumberType),
-            typeof(WriteAsStringNumberMember),
-            typeof(DefaultIgnoredMember),
-            typeof(RedundantJsonConstructorWithoutAttribute),
-            typeof(RedundantJsonConstructorWithAttribute),
-            typeof(ConstructorBindingWithoutAttribute),
-            typeof(ConstructorBindingWithAttribute),
-            typeof(IncludeAttributeHolder),
-            typeof(ObjectCreationHandlingAttributeHolder),
-            typeof(PropertyOrderAttributeHolder),
-            typeof(UnmappedMemberHandlingAttributeHolder),
-            typeof(StringEnumMemberNameValue),
-            typeof(StringEnumMemberNameAttributeHolder),
-            typeof(TelemetryContext),
-        })
+        .Concat(new[] { typeof(InventoryAttributeProbe), typeof(InventoryAttributeEnum), typeof(UnmappedAttributeProbe), typeof(AttributeProbeContext) })
         .Distinct()
         .OrderBy(TypeShapes.TypeName, StringComparer.Ordinal)
         .ToArray();
@@ -219,7 +186,13 @@ internal sealed record RecordedAttributeFact(
 {
     public string Display => Arguments.Count == 0
         ? AttributeType
-        : $"{AttributeType}({string.Join(",", Arguments.Select(static argument => $"{argument.Name}={argument.Value}"))})";
+        : $"{AttributeType}({string.Join(",", Arguments.Select(argument => $"{argument.Name}={DisplayValue(argument)}"))})";
+
+    private string DisplayValue(RecordedAttributeArgument argument) =>
+        string.Equals(AttributeType, "System.Text.Json.Serialization.JsonDerivedTypeAttribute", StringComparison.Ordinal) &&
+        string.Equals(argument.Name, "$0", StringComparison.Ordinal)
+            ? "<derived-type>"
+            : argument.Value;
 }
 
 /// <summary>One stable name/value pair from a declared attribute.</summary>

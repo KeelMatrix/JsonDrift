@@ -1,15 +1,20 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// Creates the serializer option sets used by the rule matrix.
 /// </summary>
 internal static class JsonContractOptions
 {
+    private enum ConfigurationProbeEnum
+    {
+        First,
+        Second,
+    }
+
     /// <summary>
     /// The option profiles every committed check is measured under, and the single source of truth of the
     /// classifier's option allowlist.
@@ -70,9 +75,9 @@ internal static class JsonContractOptions
     public static IReadOnlyList<RecordedConverterConfiguration> MeasuredConverterConfigurations { get; } =
         new (JsonSerializerOptions Options, Type EnumType)[]
         {
-            (Reflection(), typeof(OrderState)),
-            (Reflection(new JsonStringEnumConverter()), typeof(OrderState)),
-            (Reflection(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false)), typeof(OrderState)),
+            (Reflection(), typeof(ConfigurationProbeEnum)),
+            (Reflection(new JsonStringEnumConverter()), typeof(ConfigurationProbeEnum)),
+            (Reflection(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false)), typeof(ConfigurationProbeEnum)),
         }
         .Select(profile => ConverterConfigurationFacts.Probe(profile.Options, profile.EnumType)!)
         .Distinct()

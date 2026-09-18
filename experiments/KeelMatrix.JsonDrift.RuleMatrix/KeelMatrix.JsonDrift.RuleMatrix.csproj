@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/KeelMatrix.JsonDrift/KeelMatrix.JsonDrift.csproj" />
     <PackageReference Include="System.Text.Json" />
   </ItemGroup>
 </Project>

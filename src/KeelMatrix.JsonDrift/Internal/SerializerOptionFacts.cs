@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// The serializer option families whose values change what a contract writes or reads. The traversal records

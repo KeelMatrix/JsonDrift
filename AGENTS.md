@@ -1,14 +1,18 @@
 ## Navigation
 
+- `src/KeelMatrix.JsonDrift` is the packable `net8.0` library and owns the promoted traversal, deny-by-default
+  classification, and canonical baseline model.
+- `tests/KeelMatrix.JsonDrift.Tests` contains the foundation API, determinism, parsing, concurrency, and XML-doc
+  contract tests.
 - `experiments/KeelMatrix.JsonDrift.RuleMatrix` is the executable compatibility-rule matrix. It contains the
   contract fixtures (`Contracts/`), the measurement harness (`Matrix/`), and one file per rule family
-  (`Rules/`).
+  (`Rules/`); its promoted mechanism comes from the product project reference.
 - `docs/compatibility-rules.md` is the normative rule table: rule identifier, change, classification under
   each policy, reason, and the check that proves it.
 - `docs/initial-release-scope.md` records the recommended first-release scope and its evidence.
-- `scripts/validate-rule-matrix.ps1` is the repository-controlled validation entry point.
+- `scripts/validate.ps1` is the repository-controlled local CI-equivalent validation entry point.
+- `scripts/validation-manifest.json` is the fail-closed required-check manifest.
 
-No packable project exists yet. The public API, baseline format, and package are deliberately absent.
 
 ## Commands
 
@@ -17,6 +21,8 @@ dotnet restore KeelMatrix.JsonDrift.sln --configfile NuGet.config
 dotnet build KeelMatrix.JsonDrift.sln -c Release --no-restore
 dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no-build -- --matrix --verbose
 dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no-build -- --canonical artifacts/canonical
+dotnet test KeelMatrix.JsonDrift.sln -c Release --no-build
+pwsh scripts/validate.ps1
 ```
 
 ## Invariants
@@ -36,12 +42,14 @@ dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no
   rather than from a hand-maintained list.
 - Canonical contract documents are sorted by member name, LF-terminated, UTF-8 without a byte order mark, and
   free of timestamps, host paths, and process-specific values.
-- The experiment project is not packable and must stay that way until the product scope is implemented.
+- The experiment project is not packable and must stay that way.
+- The product is `net8.0` only and exposes `ReaderBackward` only in this release slice.
+- Reads never create, update, or rewrite baselines; baseline mutation requires an explicit create/update call.
 
 ## Validation
 
 Run the focused rule matrix first, then the Release solution build and the full
-`scripts/validate-rule-matrix.ps1` gate. Re-run the matrix whenever a rule, a fixture, or the
+`scripts/validate.ps1` gate. Re-run the matrix whenever a rule, a fixture, or the
 `System.Text.Json` package version changes, and update `docs/compatibility-rules.md` from the measured output
 rather than from expectation.
 

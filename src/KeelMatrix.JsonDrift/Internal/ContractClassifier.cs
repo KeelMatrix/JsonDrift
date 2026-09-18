@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization.Metadata;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// Classifies a recorded contract. A node is supported only when its recorded shape evidence is complete and
@@ -524,5 +524,5 @@ internal static class ContractClassifier
         Classification.Unclassifiable(ruleId, reason);
 
     private static string Witness(MetadataSourceKind source, string reason) =>
-        MetadataDiscoverySources.Witness(MetadataSourceRules.Id(source), reason);
+        ContractDiagnostics.Witness(MetadataSourceRules.Id(source), reason);
 }

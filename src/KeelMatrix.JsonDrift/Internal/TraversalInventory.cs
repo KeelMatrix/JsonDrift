@@ -1,4 +1,4 @@
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// The runtime inventory the traversal and the classifier emit while they run: which discovery sources were

@@ -4,6 +4,10 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeelMatrix.JsonDrift.RuleMatrix", "experiments\KeelMatrix.JsonDrift.RuleMatrix\KeelMatrix.JsonDrift.RuleMatrix.csproj", "{6E2F1C74-3A4B-4C21-9D57-2B7A5C9E1F30}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeelMatrix.JsonDrift", "src\KeelMatrix.JsonDrift\KeelMatrix.JsonDrift.csproj", "{C0B5D39B-8D3E-4C8D-9A5A-1D7B2F4E6C80}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeelMatrix.JsonDrift.Tests", "tests\KeelMatrix.JsonDrift.Tests\KeelMatrix.JsonDrift.Tests.csproj", "{E1A6F4C2-7B3D-4F90-A8CE-2D5B6E9F1047}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +18,14 @@ Global
 		{6E2F1C74-3A4B-4C21-9D57-2B7A5C9E1F30}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6E2F1C74-3A4B-4C21-9D57-2B7A5C9E1F30}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6E2F1C74-3A4B-4C21-9D57-2B7A5C9E1F30}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C0B5D39B-8D3E-4C8D-9A5A-1D7B2F4E6C80}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C0B5D39B-8D3E-4C8D-9A5A-1D7B2F4E6C80}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C0B5D39B-8D3E-4C8D-9A5A-1D7B2F4E6C80}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C0B5D39B-8D3E-4C8D-9A5A-1D7B2F4E6C80}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E1A6F4C2-7B3D-4F90-A8CE-2D5B6E9F1047}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E1A6F4C2-7B3D-4F90-A8CE-2D5B6E9F1047}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E1A6F4C2-7B3D-4F90-A8CE-2D5B6E9F1047}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E1A6F4C2-7B3D-4F90-A8CE-2D5B6E9F1047}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

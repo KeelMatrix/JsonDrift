@@ -1,4 +1,4 @@
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// Every metadata discovery source the single recursive traversal records. The traversal resolves the

@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// Produces a deterministic structural description of an effective serializer contract from the recorded
@@ -14,8 +14,8 @@ namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 /// </summary>
 internal static class ContractCanonicalizer
 {
-    /// <summary>The canonical document format version.</summary>
-    public const int ContractVersion = 3;
+    /// <summary>The canonical baseline document format version.</summary>
+    public const int FormatVersion = 1;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
@@ -32,7 +32,7 @@ internal static class ContractCanonicalizer
 
         var document = new JsonObject
         {
-            ["contractVersion"] = ContractVersion,
+            ["formatVersion"] = FormatVersion,
             ["options"] = DescribeOptions(root.Options),
             ["root"] = DescribeNode(root, includeMembers: true),
         };
@@ -299,7 +299,7 @@ internal static class ContractCanonicalizer
         RecordedNodeKind.Enumerable => true,
         RecordedNodeKind.Dictionary => true,
         RecordedNodeKind.Scalar => false,
-        RecordedNodeKind.Reference => false,
+        RecordedNodeKind.Reference => true,
         RecordedNodeKind.Unavailable => false,
     };
 

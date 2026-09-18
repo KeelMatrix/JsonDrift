@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "requiredChecks": [
+    "restore",
+    "format",
+    "build-release",
+    "test",
+    "phase0-matrix",
+    "canonical-determinism",
+    "package",
+    "manifest"
+  ]
+}

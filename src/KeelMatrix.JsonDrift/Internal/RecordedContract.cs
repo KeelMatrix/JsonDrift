@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization.Metadata;
 
-namespace KeelMatrix.JsonDrift.RuleMatrix.Matrix;
+namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
 /// The kind of node the traversal recorded. The classifier resolves the rule of a recorded node through an

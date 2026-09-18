@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <Authors>KeelMatrix</Authors>
+    <PackageId>KeelMatrix.JsonDrift</PackageId>
+    <Description>Detect breaking or unsupported System.Text.Json contract changes from the serializer metadata your .NET app actually uses.</Description>
+    <PackageTags>system-text-json;json;contract;compatibility;schema-evolution;testing;ci;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/KeelMatrix/JsonDrift</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/KeelMatrix/JsonDrift</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EnablePublicApiAnalyzers>true</EnablePublicApiAnalyzers>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- The private attribute probes intentionally exercise declarations that native-AOT source generation
+         warns about; the product never serializes these probes. -->
+    <NoWarn>$(NoWarn);CS8524;SYSLIB1034;SYSLIB1038</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+    <!-- The shipped classifier relies on the measured modern JsonTypeInfo metadata surface. -->
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="KeelMatrix.JsonDrift.RuleMatrix" />
+    <InternalsVisibleTo Include="KeelMatrix.JsonDrift.Tests" />
+  </ItemGroup>
+</Project>

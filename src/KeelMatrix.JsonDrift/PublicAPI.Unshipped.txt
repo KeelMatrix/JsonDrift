@@ -1,0 +1,25 @@
+#nullable enable
+const KeelMatrix.JsonDrift.JsonBaselineLimits.DefaultMaximumBytes = 1048576 -> int
+const KeelMatrix.JsonDrift.JsonBaselineLimits.DefaultMaximumDepth = 64 -> int
+KeelMatrix.JsonDrift.JsonBaseline
+KeelMatrix.JsonDrift.JsonBaselineLimits
+KeelMatrix.JsonDrift.JsonBaselineLimits.JsonBaselineLimits(int maximumBytes = 1048576, int maximumDepth = 64) -> void
+KeelMatrix.JsonDrift.JsonBaselineLimits.MaximumBytes.get -> int
+KeelMatrix.JsonDrift.JsonBaselineLimits.MaximumDepth.get -> int
+KeelMatrix.JsonDrift.JsonCompatibility
+KeelMatrix.JsonDrift.JsonCompatibility.ReaderBackward = 0 -> KeelMatrix.JsonDrift.JsonCompatibility
+KeelMatrix.JsonDrift.JsonContract
+KeelMatrix.JsonDrift.JsonContract.CanonicalJson.get -> string!
+KeelMatrix.JsonDrift.JsonContract.FormatVersion.get -> int
+KeelMatrix.JsonDrift.JsonContract.GetCanonicalUtf8() -> byte[]!
+KeelMatrix.JsonDrift.JsonContract.IsSupported.get -> bool
+KeelMatrix.JsonDrift.JsonContract.RootTypeName.get -> string!
+KeelMatrix.JsonDrift.JsonContract.UnsupportedReason.get -> string?
+KeelMatrix.JsonDrift.JsonDrift
+static KeelMatrix.JsonDrift.JsonBaseline.Create(System.Text.Json.Serialization.Metadata.JsonTypeInfo! contract, string! path, bool overwrite) -> KeelMatrix.JsonDrift.JsonContract!
+static KeelMatrix.JsonDrift.JsonBaseline.Create<T>(System.Text.Json.JsonSerializerOptions! options, string! path, bool overwrite) -> KeelMatrix.JsonDrift.JsonContract!
+static KeelMatrix.JsonDrift.JsonBaseline.Read(string! path, KeelMatrix.JsonDrift.JsonBaselineLimits? limits = null) -> KeelMatrix.JsonDrift.JsonContract!
+static KeelMatrix.JsonDrift.JsonBaseline.Update(System.Text.Json.Serialization.Metadata.JsonTypeInfo! contract, string! path, bool overwrite) -> KeelMatrix.JsonDrift.JsonContract!
+static KeelMatrix.JsonDrift.JsonDrift.Extract(System.Text.Json.Serialization.Metadata.JsonTypeInfo! contract) -> KeelMatrix.JsonDrift.JsonContract!
+static KeelMatrix.JsonDrift.JsonDrift.Extract(System.Type! type, System.Text.Json.JsonSerializerOptions! options) -> KeelMatrix.JsonDrift.JsonContract!
+static KeelMatrix.JsonDrift.JsonDrift.Extract<T>(System.Text.Json.JsonSerializerOptions! options) -> KeelMatrix.JsonDrift.JsonContract!
