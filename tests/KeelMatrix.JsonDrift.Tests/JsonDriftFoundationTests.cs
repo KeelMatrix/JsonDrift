@@ -56,11 +56,13 @@ public sealed partial class JsonDriftFoundationTests
     public void UnsupportedConverterIsExplicitAndNamesTheFeature()
     {
         JsonSerializerOptions options = ReflectionOptions();
-        options.Converters.Add(new SecretConverter());
+        SecretConverter converter = new();
+        options.Converters.Add(converter);
 
         JsonContract contract = JsonDrift.Extract<SecretEnvelope>(options);
 
         Assert.False(contract.IsSupported);
+        Assert.Equal(0, converter.InvocationCount);
         Assert.NotNull(contract.UnsupportedReason);
         Assert.Contains("converter", contract.UnsupportedReason!, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Secret", contract.UnsupportedReason!, StringComparison.OrdinalIgnoreCase);
@@ -351,9 +353,19 @@ public sealed partial class JsonDriftFoundationTests
 
     private sealed class SecretConverter : JsonConverter<Secret>
     {
-        public override Secret? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => new() { Value = reader.GetString() ?? string.Empty };
+        public int InvocationCount { get; private set; }
 
-        public override void Write(Utf8JsonWriter writer, Secret value, JsonSerializerOptions options) => writer.WriteStringValue(value.Value);
+        public override Secret? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            InvocationCount++;
+            return new() { Value = reader.GetString() ?? string.Empty };
+        }
+
+        public override void Write(Utf8JsonWriter writer, Secret value, JsonSerializerOptions options)
+        {
+            InvocationCount++;
+            writer.WriteStringValue(value.Value);
+        }
     }
 
     private sealed class SimpleEnvelope
