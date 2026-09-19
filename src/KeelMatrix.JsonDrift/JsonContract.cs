@@ -26,6 +26,8 @@ public sealed class JsonContract
     private static readonly string[] PolymorphismRequired = { "discriminatorPropertyName", "unknownDerivedTypeHandling", "derivedTypes" };
     private static readonly string[] AttributeRequired = { "type", "arguments" };
     private static readonly string[] AttributeArgumentRequired = { "name", "value" };
+    private static readonly string[] MemberOptional = { "reason", "enumWire", "shape", "included", "constructorBinding" };
+    private static readonly string[] ConstructorBindingRequired = { "name", "position", "hasDefaultValue" };
 
     private readonly byte[] canonicalBytes;
 
@@ -359,8 +361,7 @@ public sealed class JsonContract
                 "name", "declaredType", "tokenKind", "required", "getNullable", "setNullable", "extensionData",
                 "declaredAttributes", "rule", "supported",
             };
-            string[] optional = { "reason", "enumWire", "shape" };
-            ValidateObjectProperties(member, required, optional, $"{context} member");
+            ValidateObjectProperties(member, required, MemberOptional, $"{context} member");
             RequireString(member, "declaredType", context, allowEmpty: false);
             string tokenKind = RequireString(member, "tokenKind", context, allowEmpty: false);
             if (!TokenKinds.Contains(tokenKind, StringComparer.Ordinal))
@@ -372,8 +373,23 @@ public sealed class JsonContract
             RequireBoolean(member, "getNullable", context);
             RequireBoolean(member, "setNullable", context);
             RequireBoolean(member, "extensionData", context);
+            bool included = true;
+            if (member.TryGetProperty("included", out JsonElement includedElement))
+            {
+                if (includedElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                {
+                    throw new InvalidDataException($"Baseline {context} member property 'included' must be a boolean.");
+                }
+
+                included = includedElement.GetBoolean();
+            }
             bool memberSupported = ValidateClassification(member, $"{context} member");
             ValidateAttributes(member.GetProperty("declaredAttributes"), $"{context} member");
+
+            if (member.TryGetProperty("constructorBinding", out JsonElement constructorBinding))
+            {
+                ValidateConstructorBinding(constructorBinding, $"{context} member");
+            }
 
             if (memberSupported && tokenKind == "opaque")
             {
@@ -394,7 +410,7 @@ public sealed class JsonContract
             {
                 memberSupported &= ValidateNode(shape, includeMembers: false, $"{context} member shape", discriminatorRequired: false);
             }
-            else if (memberSupported && (tokenKind == "object" || tokenKind == "array"))
+            else if (included && memberSupported && (tokenKind == "object" || tokenKind == "array"))
             {
                 throw new InvalidDataException($"Baseline {context} supported complex member is missing shape.");
             }
@@ -403,6 +419,24 @@ public sealed class JsonContract
         }
 
         return allSupported;
+    }
+
+    private static void ValidateConstructorBinding(JsonElement binding, string context)
+    {
+        if (binding.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException($"Baseline {context} constructorBinding must be an object.");
+        }
+
+        ValidateObjectProperties(binding, ConstructorBindingRequired, Array.Empty<string>(), $"{context} constructorBinding");
+        RequireString(binding, "name", context, allowEmpty: true);
+        JsonElement position = binding.GetProperty("position");
+        if (position.ValueKind != JsonValueKind.Number || !position.TryGetInt32(out int value) || value < 0)
+        {
+            throw new InvalidDataException($"Baseline {context} constructorBinding position must be a non-negative integer.");
+        }
+
+        RequireBoolean(binding, "hasDefaultValue", context);
     }
 
     private static void ValidateMemberNames(JsonElement memberNames, string context)

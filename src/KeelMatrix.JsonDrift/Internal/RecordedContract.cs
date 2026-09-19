@@ -70,6 +70,9 @@ internal sealed record RecordedEnumWire(
     RecordedConverterConfiguration? ConverterConfiguration,
     IReadOnlyList<RecordedEnumMember> Members);
 
+/// <summary>The constructor parameter associated with an effective JSON member, when one exists.</summary>
+internal sealed record RecordedConstructorBinding(string Name, int Position, bool HasDefaultValue);
+
 /// <summary>
 /// One recorded member of an object contract, with the member-level metadata that decides its wire shape and
 /// the recorded node of its declared type.
@@ -94,6 +97,12 @@ internal sealed record RecordedMember(
     /// member records no shape: resolving the shape would describe metadata the contract cannot classify.
     /// </summary>
     public bool MetadataNotResolved { get; init; }
+
+    /// <summary>Whether this member is effective in the JSON contract.</summary>
+    public bool Included { get; init; } = true;
+
+    /// <summary>The constructor parameter bound to this member, when the framework reports one.</summary>
+    public RecordedConstructorBinding? ConstructorBinding { get; init; }
 }
 
 /// <summary>

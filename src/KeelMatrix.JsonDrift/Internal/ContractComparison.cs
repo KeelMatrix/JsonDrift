@@ -29,6 +29,10 @@ internal static class ContractComparison
     private const string DerivedAdded = "R10b.polymorphism.derived-type-added";
     private const string ExtensionRemoved = "R11.extension-data.removed";
     private const string ExtensionAdded = "R11b.extension-data.added";
+    private const string ConstructorParameterAdded = "R12.binding.constructor-parameter-added";
+    private const string ConstructorParameterAddedEnforced = "R12.binding.constructor-parameter-added.enforced";
+    private const string ConstructorParameterDefaulted = "R12.binding.constructor-parameter-defaulted";
+    private const string ConstructorParameterRenamed = "R12.binding.constructor-parameter-renamed";
     private const string ContextOptions = "R13.source-generation.context-options";
 
     public static JsonDriftReport Compare(JsonContract earlier, JsonContract later, JsonCompatibility compatibility)
@@ -46,6 +50,7 @@ internal static class ContractComparison
         var changes = new ChangeSet();
 
         bool laterRespectsNullableAnnotations = OptionIsTrue(laterDocument.RootElement, "respectNullableAnnotations");
+        bool laterRequiresConstructorParameters = OptionIsTrue(laterDocument.RootElement, "respectRequiredConstructorParameters");
 
         CollectUnsupported(earlierDocument.RootElement, "earlier", changes);
         CollectUnsupported(laterDocument.RootElement, "later", changes);
@@ -55,7 +60,8 @@ internal static class ContractComparison
             laterDocument.RootElement.GetProperty("root"),
             "root",
             changes,
-            laterRespectsNullableAnnotations);
+            laterRespectsNullableAnnotations,
+            laterRequiresConstructorParameters);
 
         IReadOnlyList<JsonDriftChange> ordered = changes.ToArray();
         JsonDriftClassification outcome = ordered.Any(static change => change.Classification == JsonDriftClassification.Unsupported)
@@ -197,7 +203,8 @@ internal static class ContractComparison
         JsonElement later,
         string path,
         ChangeSet changes,
-        bool laterRespectsNullableAnnotations)
+        bool laterRespectsNullableAnnotations,
+        bool laterRequiresConstructorParameters)
     {
         string earlierKind = earlier.GetProperty("kind").GetString()!;
         string laterKind = later.GetProperty("kind").GetString()!;
@@ -211,7 +218,7 @@ internal static class ContractComparison
         switch (earlierKind)
         {
             case "object":
-                CompareObject(earlier, later, path, changes, laterRespectsNullableAnnotations);
+                CompareObject(earlier, later, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
                 break;
             case "array":
                 CompareTypeField(earlier, later, "elementType", path, changes, Shape);
@@ -231,7 +238,8 @@ internal static class ContractComparison
         JsonElement later,
         string path,
         ChangeSet changes,
-        bool laterRespectsNullableAnnotations)
+        bool laterRespectsNullableAnnotations,
+        bool laterRequiresConstructorParameters)
     {
         bool oldExtension = earlier.GetProperty("extensionData").GetBoolean();
         bool newExtension = later.GetProperty("extensionData").GetBoolean();
@@ -248,7 +256,7 @@ internal static class ContractComparison
 
         if (earlier.TryGetProperty("members", out JsonElement oldMembers) && later.TryGetProperty("members", out JsonElement newMembers))
         {
-            CompareMembers(oldMembers, newMembers, path, changes, laterRespectsNullableAnnotations, newExtension);
+            CompareMembers(oldMembers, newMembers, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters, newExtension);
         }
         else if (earlier.TryGetProperty("memberNames", out JsonElement oldNames) && later.TryGetProperty("memberNames", out JsonElement newNames))
         {
@@ -264,7 +272,8 @@ internal static class ContractComparison
                 hasNewPolymorphism ? newPolymorphism : null,
                 path,
                 changes,
-                laterRespectsNullableAnnotations);
+                laterRespectsNullableAnnotations,
+                laterRequiresConstructorParameters);
         }
     }
 
@@ -274,11 +283,13 @@ internal static class ContractComparison
         string path,
         ChangeSet changes,
         bool laterRespectsNullableAnnotations,
+        bool laterRequiresConstructorParameters,
         bool laterExtensionData)
     {
         var oldByName = earlier.EnumerateArray().ToDictionary(static member => member.GetProperty("name").GetString()!, StringComparer.Ordinal);
         var newByName = later.EnumerateArray().ToDictionary(static member => member.GetProperty("name").GetString()!, StringComparer.Ordinal);
         var renames = FindExplicitRenames(oldByName, newByName);
+        var constructorRenames = FindConstructorRenames(oldByName, newByName);
 
         foreach (string name in oldByName.Keys.Union(newByName.Keys, StringComparer.Ordinal).OrderBy(static name => name, StringComparer.Ordinal))
         {
@@ -288,24 +299,28 @@ internal static class ContractComparison
 
             if (!oldExists)
             {
-                if (renames.Values.Contains(name, StringComparer.Ordinal))
+                if (renames.Values.Contains(name, StringComparer.Ordinal) ||
+                    constructorRenames.Values.Contains(name, StringComparer.Ordinal))
                 {
                     continue;
                 }
 
-                bool required = newMember.GetProperty("required").GetBoolean();
-                changes.Add(
-                    memberPath,
-                    required ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
-                    required ? RequiredAdded : AdditiveProperty,
-                    required
-                        ? "the later contract adds a required member that earlier documents do not contain"
-                        : "the later contract adds an optional member; earlier members remain readable");
+                AddMemberAddition(newMember, memberPath, changes, laterRequiresConstructorParameters);
                 continue;
             }
 
             if (!newExists)
             {
+                if (constructorRenames.TryGetValue(name, out string? renamedConstructorParameter))
+                {
+                    changes.Add(
+                        memberPath,
+                        JsonDriftClassification.Incompatible,
+                        ConstructorParameterRenamed,
+                        $"the constructor parameter binding changes from '{ConstructorParameterName(oldByName[name])}' to '{ConstructorParameterName(newByName[renamedConstructorParameter])}'");
+                    continue;
+                }
+
                 if (renames.TryGetValue(name, out string? newName))
                 {
                     changes.Add(
@@ -322,8 +337,63 @@ internal static class ContractComparison
                 continue;
             }
 
-            CompareMember(oldMember, newMember, memberPath, changes, laterRespectsNullableAnnotations);
+            bool oldIncluded = IsIncluded(oldMember);
+            bool newIncluded = IsIncluded(newMember);
+            if (oldIncluded != newIncluded)
+            {
+                changes.Add(
+                    memberPath,
+                    newIncluded ? JsonDriftClassification.Compatible : JsonDriftClassification.Incompatible,
+                    newIncluded ? IgnoreIncluded : IgnoreExcluded,
+                    newIncluded
+                        ? "the later contract includes a member that the earlier contract ignored; earlier documents remain readable"
+                        : "the later contract ignores a member that the earlier contract could write");
+                continue;
+            }
+
+            if (!newIncluded)
+            {
+                continue;
+            }
+
+            CompareMember(oldMember, newMember, memberPath, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
         }
+    }
+
+    private static void AddMemberAddition(
+        JsonElement member,
+        string path,
+        ChangeSet changes,
+        bool laterRequiresConstructorParameters)
+    {
+        if (TryGetConstructorBinding(member, out JsonElement binding))
+        {
+            bool hasDefault = binding.GetProperty("hasDefaultValue").GetBoolean();
+
+            changes.Add(
+                path,
+                !hasDefault && laterRequiresConstructorParameters
+                    ? JsonDriftClassification.Incompatible
+                    : JsonDriftClassification.Compatible,
+                !hasDefault && laterRequiresConstructorParameters
+                    ? ConstructorParameterAddedEnforced
+                    : hasDefault ? ConstructorParameterDefaulted : ConstructorParameterAdded,
+                !hasDefault && laterRequiresConstructorParameters
+                    ? "the later contract requires every bound constructor parameter to be present"
+                    : hasDefault
+                        ? "the later contract adds a bound constructor parameter with a default value; earlier documents remain readable"
+                        : "the later contract adds a bound constructor parameter; missing values use the constructor default");
+            return;
+        }
+
+        bool required = member.GetProperty("required").GetBoolean();
+        changes.Add(
+            path,
+            required ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
+            required ? RequiredAdded : AdditiveProperty,
+            required
+                ? "the later contract adds a required member that earlier documents do not contain"
+                : "the later contract adds an optional member; earlier members remain readable");
     }
 
     private static Dictionary<string, string> FindExplicitRenames(
@@ -340,6 +410,35 @@ internal static class ContractComparison
                 .Where(newName => HasExplicitPropertyName(earlier[oldName]) &&
                     HasExplicitPropertyName(later[newName]) &&
                     SameMemberShape(earlier[oldName], later[newName]))
+                .ToArray();
+
+            if (candidates.Length == 1)
+            {
+                matches[oldName] = candidates[0];
+            }
+        }
+
+        return matches.Count == 1 ? matches : new Dictionary<string, string>(StringComparer.Ordinal);
+    }
+
+    private static Dictionary<string, string> FindConstructorRenames(
+        IReadOnlyDictionary<string, JsonElement> earlier,
+        IReadOnlyDictionary<string, JsonElement> later)
+    {
+        var oldOnly = earlier.Keys.Except(later.Keys, StringComparer.Ordinal).ToArray();
+        var newOnly = later.Keys.Except(earlier.Keys, StringComparer.Ordinal).ToArray();
+        var matches = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (string oldName in oldOnly)
+        {
+            string[] candidates = newOnly
+                .Where(newName =>
+                    IsIncluded(earlier[oldName]) &&
+                    IsIncluded(later[newName]) &&
+                    TryGetConstructorBinding(earlier[oldName], out JsonElement oldBinding) &&
+                    TryGetConstructorBinding(later[newName], out JsonElement newBinding) &&
+                    oldBinding.GetProperty("position").GetInt32() == newBinding.GetProperty("position").GetInt32() &&
+                    string.Equals(earlier[oldName].GetProperty("declaredType").GetString(), later[newName].GetProperty("declaredType").GetString(), StringComparison.Ordinal))
                 .ToArray();
 
             if (candidates.Length == 1)
@@ -387,8 +486,11 @@ internal static class ContractComparison
         JsonElement later,
         string path,
         ChangeSet changes,
-        bool laterRespectsNullableAnnotations)
+        bool laterRespectsNullableAnnotations,
+        bool laterRequiresConstructorParameters)
     {
+        CompareConstructorBinding(earlier, later, path, changes);
+
         bool oldRequired = earlier.GetProperty("required").GetBoolean();
         bool newRequired = later.GetProperty("required").GetBoolean();
         if (oldRequired != newRequired)
@@ -424,7 +526,30 @@ internal static class ContractComparison
         }
 
         CompareEnumWire(earlier, later, path, changes);
-        CompareShapes(earlier, later, path, changes, laterRespectsNullableAnnotations);
+        CompareShapes(earlier, later, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
+    }
+
+    private static void CompareConstructorBinding(
+        JsonElement earlier,
+        JsonElement later,
+        string path,
+        ChangeSet changes)
+    {
+        if (!TryGetConstructorBinding(earlier, out JsonElement oldBinding) ||
+            !TryGetConstructorBinding(later, out JsonElement newBinding))
+        {
+            return;
+        }
+
+        if (!string.Equals(oldBinding.GetProperty("name").GetString(), newBinding.GetProperty("name").GetString(), StringComparison.Ordinal) ||
+            oldBinding.GetProperty("position").GetInt32() != newBinding.GetProperty("position").GetInt32())
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Incompatible,
+                ConstructorParameterRenamed,
+                $"the constructor parameter binding changes from '{oldBinding.GetProperty("name").GetString()}' to '{newBinding.GetProperty("name").GetString()}'");
+        }
     }
 
     private static void CompareNullability(
@@ -466,7 +591,8 @@ internal static class ContractComparison
         JsonElement later,
         string path,
         ChangeSet changes,
-        bool laterRespectsNullableAnnotations)
+        bool laterRespectsNullableAnnotations,
+        bool laterRequiresConstructorParameters)
     {
         bool hasOld = earlier.TryGetProperty("shape", out JsonElement oldShape);
         bool hasNew = later.TryGetProperty("shape", out JsonElement newShape);
@@ -478,7 +604,7 @@ internal static class ContractComparison
 
         if (hasOld)
         {
-            CompareNode(oldShape, newShape, path, changes, laterRespectsNullableAnnotations);
+            CompareNode(oldShape, newShape, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
         }
     }
 
@@ -513,7 +639,8 @@ internal static class ContractComparison
         JsonElement? later,
         string path,
         ChangeSet changes,
-        bool laterRespectsNullableAnnotations)
+        bool laterRespectsNullableAnnotations,
+        bool laterRequiresConstructorParameters)
     {
         if (earlier is null || later is null)
         {
@@ -556,7 +683,7 @@ internal static class ContractComparison
             }
             else
             {
-                CompareNode(oldItem, newItem, itemPath, changes, laterRespectsNullableAnnotations);
+                CompareNode(oldItem, newItem, itemPath, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
             }
         }
     }
@@ -636,6 +763,17 @@ internal static class ContractComparison
     private static bool OptionIsTrue(JsonElement document, string optionName) =>
         document.GetProperty("options").TryGetProperty(optionName, out JsonElement option) &&
         string.Equals(option.GetString(), "true", StringComparison.Ordinal);
+
+    private static bool IsIncluded(JsonElement member) =>
+        !member.TryGetProperty("included", out JsonElement included) || included.GetBoolean();
+
+    private static bool TryGetConstructorBinding(JsonElement member, out JsonElement binding) =>
+        member.TryGetProperty("constructorBinding", out binding) && binding.ValueKind == JsonValueKind.Object;
+
+    private static string ConstructorParameterName(JsonElement member) =>
+        TryGetConstructorBinding(member, out JsonElement binding)
+            ? binding.GetProperty("name").GetString() ?? string.Empty
+            : string.Empty;
 
     private static string NodePath(JsonElement node) => node.GetProperty("path").GetString()!;
 

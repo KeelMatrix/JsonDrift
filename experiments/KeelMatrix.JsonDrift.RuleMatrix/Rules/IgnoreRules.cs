@@ -33,11 +33,27 @@ internal static class IgnoreRules
             WireProbe.Across(withoutSecret, ignored, included),
             writerForwardCompatible: true));
 
-        results.Add(Check.Compatible(
+        ReadOutcome includedWire = WireProbe.Across(withoutSecret, ignored, included);
+        JsonDriftReport includedReport = JsonDrift.Compare(
+            included,
+            JsonDrift.Extract(ignored),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftChange? includedChange = includedReport.Changes.SingleOrDefault();
+        bool includedReportMatches =
+            includedReport.Outcome == JsonDriftClassification.Compatible &&
+            includedChange is not null &&
+            includedChange.Path == "root.Secret" &&
+            includedChange.RuleId == "R09.ignore.member-included" &&
+            includedChange.Classification == JsonDriftClassification.Compatible;
+
+        results.Add(Check.Assert(
             "R09.ignore.member-included",
             "Ignored and included members",
             "an ignored member becomes serialized again",
-            WireProbe.Across(withoutSecret, ignored, included)));
+            "ReaderBackward=Compatible; report=R09.ignore.member-included",
+            $"ReaderBackward={(includedWire.Lossless && includedWire.Fault is null ? "Compatible" : "Incompatible")}; report={(includedReportMatches ? "R09.ignore.member-included" : "mismatch")}",
+            $"wire: {Check.Describe(includedWire)}; report: {DescribeReport(includedReport)}",
+            includedWire.Lossless && includedWire.Fault is null && includedReportMatches));
 
         results.AddRange(Check.Classify(
             "R09.ignore.condition-when-writing-null",
@@ -56,4 +72,7 @@ internal static class IgnoreRules
 
         return results;
     }
+
+    private static string DescribeReport(JsonDriftReport report) =>
+        $"outcome={report.Outcome}; changes=[{string.Join(", ", report.Changes.Select(static change => $"{change.Path}:{change.RuleId}:{change.Classification}"))}]";
 }

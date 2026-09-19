@@ -201,6 +201,10 @@ internal static class MetadataTraversal
         {
             node.MembersRecorded = true;
 
+            var effectiveNames = info.Properties
+                .Select(static property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+
             foreach (JsonPropertyInfo property in info.Properties.OrderBy(static property => property.Name, StringComparer.Ordinal))
             {
                 string memberPath = $"{node.Path} member '{property.Name}'";
@@ -212,6 +216,11 @@ internal static class MetadataTraversal
                     TraversalInventory.Ledger.RecordSource(MetadataSourceKind.ExtensionData);
                     node.Edges.Add(new RecordedEdge(MetadataSourceKind.ExtensionData, member.Shape));
                 }
+            }
+
+            foreach (RecordedMember ignored in RecordIgnoredMembers(type, effectiveNames, node.Path))
+            {
+                node.Members.Add(ignored);
             }
 
             RecordConstructorParameters(node, type, depth);
@@ -341,6 +350,7 @@ internal static class MetadataTraversal
             MemberInfo? member = ResolveMember(owner.Type, property);
             IReadOnlyList<RecordedAttributeFact> attributes = RecordDeclaredAttributes(member, path);
             JsonConverterAttribute? attribute = member?.GetCustomAttribute<JsonConverterAttribute>(inherit: true);
+            JsonIgnoreAttribute? ignore = member?.GetCustomAttribute<JsonIgnoreAttribute>(inherit: true);
 
             if (attribute?.ConverterType is Type attributeConverter)
             {
@@ -374,7 +384,91 @@ internal static class MetadataTraversal
             {
                 Path = path,
                 MetadataNotResolved = opaque,
+                Included = ignore?.Condition != JsonIgnoreCondition.Always,
+                ConstructorBinding = RecordConstructorBinding(property),
             };
+        }
+
+        private static List<RecordedMember> RecordIgnoredMembers(
+            Type type,
+            IReadOnlySet<string> effectiveNames,
+            string ownerPath)
+        {
+            const BindingFlags InstanceMembers = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var ignored = new List<RecordedMember>();
+            var names = new HashSet<string>(effectiveNames, StringComparer.Ordinal);
+
+            IEnumerable<MemberInfo> candidates = type
+                .GetProperties(InstanceMembers)
+                .Cast<MemberInfo>()
+                .Concat(type.GetFields(InstanceMembers));
+
+            foreach (MemberInfo member in candidates.OrderBy(static member => member.Name, StringComparer.Ordinal))
+            {
+                JsonIgnoreAttribute? ignore = member.GetCustomAttribute<JsonIgnoreAttribute>(inherit: true);
+                if (ignore is null || ignore.Condition == JsonIgnoreCondition.Never)
+                {
+                    continue;
+                }
+
+                string name = member.GetCustomAttribute<JsonPropertyNameAttribute>(inherit: true)?.Name ?? member.Name;
+                if (!names.Add(name))
+                {
+                    continue;
+                }
+
+                Type memberType = member switch
+                {
+                    PropertyInfo property => property.PropertyType,
+                    FieldInfo field => field.FieldType,
+                    _ => throw new InvalidOperationException($"Unsupported ignored member kind: {member.MemberType}"),
+                };
+                string path = $"{ownerPath} member '{name}'";
+
+                ignored.Add(
+                    new RecordedMember(
+                        name,
+                        memberType,
+                        Required: false,
+                        GetNullable: false,
+                        SetNullable: false,
+                        ExtensionData: false,
+                        EnumWire: null,
+                        ConverterFacts: Array.Empty<RecordedConverterFact>(),
+                        DeclaredAttributes: RecordDeclaredAttributes(member, path),
+                        Shape: new RecordedNode
+                        {
+                            Source = MetadataSourceKind.ObjectMembers,
+                            Type = memberType,
+                            TypeName = TypeShapes.TypeName(memberType),
+                            Path = path,
+                            Kind = RecordedNodeKind.Unavailable,
+                        })
+                    {
+                        Path = path,
+                        Included = false,
+                    });
+            }
+
+            return ignored;
+        }
+
+        private static RecordedConstructorBinding? RecordConstructorBinding(JsonPropertyInfo property)
+        {
+            JsonParameterInfo? parameter;
+
+            try
+            {
+                parameter = property.AssociatedParameter;
+            }
+            catch (InvalidOperationException)
+            {
+                parameter = null;
+            }
+
+            return parameter is null
+                ? null
+                : new RecordedConstructorBinding(parameter.Name ?? string.Empty, parameter.Position, parameter.HasDefaultValue);
         }
 
         /// <summary>

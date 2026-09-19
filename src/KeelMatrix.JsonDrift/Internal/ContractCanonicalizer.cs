@@ -180,24 +180,35 @@ internal static class ContractCanonicalizer
             ["getNullable"] = member.GetNullable,
             ["setNullable"] = member.SetNullable,
             ["extensionData"] = member.ExtensionData,
+            ["included"] = member.Included,
             ["declaredAttributes"] = DescribeAttributes(member.DeclaredAttributes),
             ["rule"] = verdict.RuleId,
             ["supported"] = verdict.Supported,
         };
+
+        if (member.ConstructorBinding is RecordedConstructorBinding binding)
+        {
+            described["constructorBinding"] = new JsonObject
+            {
+                ["name"] = binding.Name,
+                ["position"] = binding.Position,
+                ["hasDefaultValue"] = binding.HasDefaultValue,
+            };
+        }
 
         if (!verdict.Supported && verdict.Reason is not null)
         {
             described["reason"] = verdict.Reason;
         }
 
-        if (member.EnumWire is RecordedEnumWire wire)
+        if (member.Included && member.EnumWire is RecordedEnumWire wire)
         {
             described["enumWire"] = DescribeEnumWire(wire);
         }
 
         // A member whose metadata is decided by an unrecognized converter records no shape, and a scalar
         // member has no nested contract to describe, so only a classifiable complex shape is recorded.
-        if (!member.MetadataNotResolved && IsComplexShape(member.Shape))
+        if (member.Included && !member.MetadataNotResolved && IsComplexShape(member.Shape))
         {
             described["shape"] = DescribeNode(member.Shape, includeMembers: false);
         }
@@ -299,7 +310,7 @@ internal static class ContractCanonicalizer
         RecordedNodeKind.Enumerable => true,
         RecordedNodeKind.Dictionary => true,
         RecordedNodeKind.Scalar => false,
-        RecordedNodeKind.Reference => true,
+        RecordedNodeKind.Reference => node.Reference is not null && IsComplexShape(node.Reference),
         RecordedNodeKind.Unavailable => false,
     };
 

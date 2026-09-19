@@ -23,12 +23,28 @@ JsonTypeInfo<OrderEventV2WithOptionalNote> additiveContract = MyJsonContext.Defa
 JsonDriftReport additive = JsonDrift.Compare(additiveContract, path, JsonCompatibility.ReaderBackward);
 additive.AssertCompatible();
 
-// A renamed or newly required member fails with structured changes:
+// A measured allowlisted rename or newly required member fails with structured changes:
 JsonTypeInfo<OrderEventV2RenamedOrRequired> breakingContract = MyJsonContext.Default.OrderEventV2RenamedOrRequired;
 JsonDriftReport breakingChange = JsonDrift.Compare(breakingContract, path, JsonCompatibility.ReaderBackward);
 // breakingChange.Changes contains the path, classification, rule, and reason.
 // breakingChange.AssertCompatible() throws JsonDriftCompatibilityException.
 ```
+
+The reflection/options overload requires an explicit resolver with the pinned `System.Text.Json` behavior:
+
+```csharp
+JsonSerializerOptions options = new()
+{
+    TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+};
+
+JsonBaseline.Create<OrderEventV1>(options, path, overwrite: false);
+JsonDriftReport reflectionComparison = JsonDrift.Compare<OrderEventV2WithOptionalNote>(
+    options, path, JsonCompatibility.ReaderBackward);
+```
+
+A measured, allowlisted `[JsonPropertyName]` rename produces an incompatible change. An arbitrary
+unallowlisted serialization attribute or value, including an unmeasured rename, is unsupported.
 
 `JsonDrift.Compare` also accepts an already-extracted `JsonContract`. After an intentional change, use
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.

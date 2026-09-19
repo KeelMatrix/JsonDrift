@@ -143,6 +143,6 @@ internal static class GenerationRules
             ", ",
             SerializerOptionFacts.Read(contract.Options).Values.Select(static value => value.Display));
 
-    private static string Classification(ReadOutcome outcome) =>
+    private static string Classification(Matrix.ReadOutcome outcome) =>
         outcome.Lossless ? "ReaderBackward=Compatible" : "ReaderBackward=Incompatible";
 }

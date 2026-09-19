@@ -26,38 +26,51 @@ internal static class BindingRules
         var later = new ShipmentEventV2("S1", "carrier");
         var laterDefaulted = new ShipmentEventV2Defaulted("S1");
 
-        results.AddRange(Check.Classify(
+        results.AddRange(WithReport(Check.Classify(
             "R12.binding.constructor-parameter-added",
             "Constructor binding change",
             "a constructor parameter is added to a bound constructor",
             WireProbe.Across(earlier, v1, v2),
             readerBackwardCompatible: true,
             WireProbe.Across(later, v2, v1),
-            writerForwardCompatible: false));
+            writerForwardCompatible: false),
+            JsonDrift.Compare(v2, JsonDrift.Extract(v1), JsonCompatibility.ReaderBackward),
+            "R12.binding.constructor-parameter-added",
+            JsonDriftClassification.Compatible));
 
-        results.Add(Check.Incompatible(
+        results.Add(WithReport(
+            new[] { Check.Incompatible(
             "R12.binding.constructor-parameter-added.enforced",
             "Constructor binding change",
             "a constructor parameter is added while missing parameters are rejected",
-            WireProbe.Across(earlier, v1, v2Strict)));
+            WireProbe.Across(earlier, v1, v2Strict)) },
+            JsonDrift.Compare(v2Strict, JsonDrift.Extract(v1), JsonCompatibility.ReaderBackward),
+            "R12.binding.constructor-parameter-added.enforced",
+            JsonDriftClassification.Incompatible).Single());
 
-        results.AddRange(Check.Classify(
+        results.AddRange(WithReport(Check.Classify(
             "R12.binding.constructor-parameter-defaulted",
             "Constructor binding change",
             "an added constructor parameter has a default value",
             WireProbe.Across(earlier, v1, v2Defaulted),
             readerBackwardCompatible: true,
             WireProbe.Across(laterDefaulted, v2Defaulted, v1),
-            writerForwardCompatible: false));
+            writerForwardCompatible: false),
+            JsonDrift.Compare(v2Defaulted, JsonDrift.Extract(v1), JsonCompatibility.ReaderBackward),
+            "R12.binding.constructor-parameter-defaulted",
+            JsonDriftClassification.Compatible));
 
-        results.AddRange(Check.Classify(
+        results.AddRange(WithReport(Check.Classify(
             "R12.binding.constructor-parameter-renamed",
             "Constructor binding change",
             "a constructor parameter that binds by name is renamed",
             WireProbe.Across(new QuoteV1(12.5m), reflection.GetTypeInfo(typeof(QuoteV1)), reflection.GetTypeInfo(typeof(QuoteV2))),
             readerBackwardCompatible: false,
             WireProbe.Across(new QuoteV2(12.5m), reflection.GetTypeInfo(typeof(QuoteV2)), reflection.GetTypeInfo(typeof(QuoteV1))),
-            writerForwardCompatible: false));
+            writerForwardCompatible: false),
+            JsonDrift.Compare(reflection.GetTypeInfo(typeof(QuoteV2)), JsonDrift.Extract(reflection.GetTypeInfo(typeof(QuoteV1))), JsonCompatibility.ReaderBackward),
+            "R12.binding.constructor-parameter-renamed",
+            JsonDriftClassification.Incompatible));
 
         results.Add(Check.Compatible(
             "R12.binding.control",
@@ -67,4 +80,27 @@ internal static class BindingRules
 
         return results;
     }
+
+    private static CheckOutcome[] WithReport(
+        IReadOnlyList<CheckOutcome> checks,
+        JsonDriftReport report,
+        string expectedRuleId,
+        JsonDriftClassification expectedClassification)
+    {
+        bool reportMatches = report.Changes.Any(change =>
+            change.RuleId == expectedRuleId &&
+            change.Classification == expectedClassification);
+        CheckOutcome reader = checks[0];
+        CheckOutcome[] updated = checks.ToArray();
+        updated[0] = reader with
+        {
+            Measured = $"{reader.Measured}; report={(reportMatches ? expectedRuleId : "mismatch")}",
+            Observation = $"{reader.Observation}; report={DescribeReport(report)}",
+            Passed = reader.Passed && reportMatches,
+        };
+        return updated;
+    }
+
+    private static string DescribeReport(JsonDriftReport report) =>
+        $"outcome={report.Outcome}; changes=[{string.Join(", ", report.Changes.Select(static change => $"{change.Path}:{change.RuleId}:{change.Classification}"))}]";
 }

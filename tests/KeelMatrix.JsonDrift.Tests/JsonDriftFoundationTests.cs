@@ -10,6 +10,8 @@ namespace KeelMatrix.JsonDrift.Tests;
 public sealed partial class JsonDriftFoundationTests
 {
     private static readonly string[] CompleteChangePaths = { "root.Note", "root.Required" };
+    private static readonly string[] MultiChangePaths = { "root.Carrier", "root.Secret" };
+    private static readonly string[] MultiChangeRules = { "R12.binding.constructor-parameter-added", "R09.ignore.member-included" };
 
     [Fact]
     public void ExtractsFromReflectionOptionsAndRecordsSupportedContract()
@@ -144,6 +146,52 @@ public sealed partial class JsonDriftFoundationTests
         Assert.Equal(
             first.Changes.Select(static change => change.ToString()),
             second.Changes.Select(static change => change.ToString()));
+    }
+
+    [Fact]
+    public void CompareReportsIgnoreIncludeAndConstructorBindingInCompleteOrder()
+    {
+        JsonContract baseline = JsonDrift.Extract<MultiChangeV1>(ReflectionOptions());
+        JsonTypeInfo current = ReflectionOptions().GetTypeInfo(typeof(MultiChangeV2));
+
+        JsonDriftReport report = JsonDrift.Compare(current, baseline, JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Compatible, report.Outcome);
+        Assert.Equal(MultiChangePaths, report.Changes.Select(static change => change.Path));
+        Assert.Equal(MultiChangeRules, report.Changes.Select(static change => change.RuleId));
+        Assert.All(report.Changes, static change => Assert.Equal(JsonDriftClassification.Compatible, change.Classification));
+    }
+
+    [Fact]
+    public void CompareReportsConstructorBindingDefaultEnforcementAndRename()
+    {
+        JsonContract baseline = JsonDrift.Extract<BindingV1>(ReflectionOptions());
+
+        JsonDriftReport defaultedReport = JsonDrift.Compare(
+            ReflectionOptions().GetTypeInfo(typeof(BindingV2Defaulted)),
+            baseline,
+            JsonCompatibility.ReaderBackward);
+        JsonDriftChange defaulted = Assert.Single(defaultedReport.Changes);
+        Assert.Equal("R12.binding.constructor-parameter-defaulted", defaulted.RuleId);
+        Assert.Equal(JsonDriftClassification.Compatible, defaulted.Classification);
+
+        JsonSerializerOptions strict = ReflectionOptions();
+        strict.RespectRequiredConstructorParameters = true;
+        JsonDriftReport enforcedReport = JsonDrift.Compare(
+            strict.GetTypeInfo(typeof(BindingV2)),
+            baseline,
+            JsonCompatibility.ReaderBackward);
+        Assert.Contains(enforcedReport.Changes, change =>
+            change.RuleId == "R12.binding.constructor-parameter-added.enforced" &&
+            change.Classification == JsonDriftClassification.Incompatible);
+
+        JsonDriftReport renamedReport = JsonDrift.Compare(
+            ReflectionOptions().GetTypeInfo(typeof(BindingRenameV2)),
+            JsonDrift.Extract<BindingRenameV1>(ReflectionOptions()),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftChange renamed = Assert.Single(renamedReport.Changes);
+        Assert.Equal("R12.binding.constructor-parameter-renamed", renamed.RuleId);
+        Assert.Equal(JsonDriftClassification.Incompatible, renamed.Classification);
     }
 
     [Fact]
@@ -516,6 +564,41 @@ public sealed partial class JsonDriftFoundationTests
         [JsonRequired]
         public string? Tracking { get; set; }
     }
+
+    private sealed class MultiChangeV1
+    {
+        public MultiChangeV1(string id) => Id = id;
+
+        public string Id { get; }
+
+        [JsonIgnore]
+        public string Secret { get; set; } = string.Empty;
+    }
+
+    private sealed class MultiChangeV2
+    {
+        public MultiChangeV2(string id, string carrier)
+        {
+            Id = id;
+            Carrier = carrier;
+        }
+
+        public string Id { get; }
+
+        public string Carrier { get; }
+
+        public string Secret { get; set; } = string.Empty;
+    }
+
+    private sealed record BindingV1(string Id);
+
+    private sealed record BindingV2(string Id, string Carrier);
+
+    private sealed record BindingV2Defaulted(string Id, string Carrier = "unspecified");
+
+    private sealed record BindingRenameV1(decimal Value);
+
+    private sealed record BindingRenameV2(decimal Amount);
 
     private sealed class RecursiveNode
     {

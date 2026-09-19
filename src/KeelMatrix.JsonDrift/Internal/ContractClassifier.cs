@@ -106,6 +106,11 @@ internal static class ContractClassifier
 
             foreach (RecordedMember member in node.Members)
             {
+                if (!member.Included)
+                {
+                    continue;
+                }
+
                 Classification memberVerdict = ClassifyMemberCore(member);
 
                 if (!memberVerdict.Supported)
@@ -280,6 +285,11 @@ internal static class ContractClassifier
 
         private Classification ClassifyMemberCore(RecordedMember member)
         {
+            if (!member.Included)
+            {
+                return Classification.Classifiable(RuleIds.SupportedMember);
+            }
+
             foreach (RecordedConverterFact fact in member.ConverterFacts)
             {
                 if (DescribeUnallowlisted(fact, member.DeclaredType) is Classification verdict)

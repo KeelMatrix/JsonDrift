@@ -206,21 +206,3 @@ internal static class DeclaredAttributeFacts
         };
     }
 }
-
-/// <summary>An explicitly excluded runtime System.Text.Json declaration type and its measured reason.</summary>
-internal sealed record DeclaredAttributeExclusion(Type Type, string Reason);
-
-/// <summary>One declared JSON attribute and its constructor/named argument values.</summary>
-internal sealed record RecordedAttributeFact(
-    MetadataSourceKind Source,
-    string Path,
-    string AttributeType,
-    IReadOnlyList<RecordedAttributeArgument> Arguments)
-{
-    public string Display => Arguments.Count == 0
-        ? AttributeType
-        : $"{AttributeType}({string.Join(",", Arguments.Select(static argument => $"{argument.Name}={argument.Value}"))})";
-}
-
-/// <summary>One stable name/value pair from a declared attribute.</summary>
-internal sealed record RecordedAttributeArgument(string Name, string Value);

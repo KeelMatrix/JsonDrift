@@ -11,6 +11,11 @@ All notable changes to this project are documented in this file. The format is b
 - Deterministic `ReaderBackward` contract comparison with complete structured change reports.
 - `JsonDrift.Compare`, `JsonDriftReport.AssertCompatible()`, and fail-closed diagnostics for incompatible or
   unsupported metadata.
+- Complete reports for effective ignored/included member transitions and constructor-binding changes, including
+  defaulted, enforced, and renamed bindings.
+- The reflection/options path requires an explicit `DefaultJsonTypeInfoResolver` with the pinned
+  `System.Text.Json` behavior. Measured allowlisted `[JsonPropertyName]` renames are incompatible; arbitrary
+  unallowlisted serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
 
 ## [0.1.0] - 2026-09-18

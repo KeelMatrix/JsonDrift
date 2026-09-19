@@ -394,14 +394,14 @@ internal static class AttributeRules
         var observed = new List<string>();
         JsonSerializerOptions options = JsonContractOptions.Reflection();
 
-        foreach (Type type in DeclaredAttributeFacts.MeasuredTypes)
+        foreach (Type type in ShippingDeclaredAttributeFacts.MeasuredTypes)
         {
             JsonTypeInfo contract = options.GetTypeInfo(type);
             string? reason = ContractClassifier.DescribeUnsupported(contract);
 
             if (reason is null)
             {
-                IReadOnlyList<RecordedAttributeFact> accepted = DeclaredAttributeFacts.ReadContractSurface(type);
+                IReadOnlyList<RecordedAttributeFact> accepted = ShippingDeclaredAttributeFacts.ReadContractSurface(type);
                 observed.AddRange(accepted.Select(static attribute => attribute.Display));
 
                 foreach (RecordedAttributeFact attribute in accepted)
