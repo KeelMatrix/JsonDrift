@@ -63,13 +63,18 @@ The comparison core is offline. A real comparison against an accepted baseline m
 to `KeelMatrix.Telemetry` for activation and a low-frequency weekly heartbeat; baseline creation alone does
 not activate telemetry. JsonDrift sends no product-specific comparison payload. The shared activation and
 heartbeat events carry their standard event, tool/version, schema, pseudonymous project/install fingerprint,
-runtime/OS/CI/time or week fields. The project fingerprint is a salted hash derived from the project's
-location, is not reversible by ordinary analytics, and is used only to distinguish projects and count repeat
-use. Contract and baseline content, raw repository URLs, absolute paths, commit identifiers, domain
-identifiers, type/member names, converter names, enum or discriminator values, serializer configuration
-values, and arbitrary exception messages never leave the machine. Telemetry failure cannot change comparison
-or assertion results. Set `KEELMATRIX_NO_TELEMETRY=1` to opt out; the shared client also honors its process
-and repository-local controls. The full product-specific contract is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
+runtime/OS/CI/time or week fields. The project fingerprint is `SHA-256("repo.v1" + normalized repository key)`.
+The normalized key comes, in order, from the CI repository identity (for example `GITHUB_SERVER_URL` plus
+`GITHUB_REPOSITORY`), the local git `origin` remote URL, the git root commit using
+`SHA-256("git-root.v1" + root commit hash)`, or project-file content as a fallback. It is a stable, unsalted
+pseudonym of the consuming codebase, deliberately used to correlate the same project across machines and time.
+The per-installation machine salt applies only to the separate `installation_hash`. Contract and baseline content,
+raw repository URLs, paths, commit identifiers, type/member names, enum labels, discriminator values, converter
+names, serializer configuration values, project-file content, and arbitrary exception messages never leave the
+machine. The documented comparison caller-path bound is 250 ms on the Windows validation host, measured with both
+a no-op client and a client that blocks indefinitely. Telemetry failure cannot change comparison or assertion
+results. Set `KEELMATRIX_NO_TELEMETRY=1` to opt out; the shared client also honors its process and repository-local
+controls. The full product-specific contract is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
 
 ## Deeper documentation
 

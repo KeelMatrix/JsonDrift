@@ -34,12 +34,17 @@ activation. Telemetry failures never change a report or assertion result.
 JsonDrift sends no product-specific comparison payload. The shared client emits its standard activation and
 heartbeat fields: event kind, the `jsondrift` tool identifier, package and telemetry versions, schema version,
 pseudonymous project and installation fingerprints, and the standard activation runtime/OS/CI/time or
-heartbeat-week field. The project fingerprint is a salted hash derived from the project's location; ordinary
-analytics cannot reverse it, and no raw identity is transmitted. These fields are used only to distinguish
-projects/installations and count activation and repeat use. Contract content, baseline documents, raw repository
-URLs, absolute paths, commit identifiers, namespaces, type/member names, converter names, enum values,
-discriminator values, serializer configuration values, and exception messages are not sent. Disable telemetry
-with `KEELMATRIX_NO_TELEMETRY=1`; the shared client also honors its process and repository-local controls.
+heartbeat-week field. The project fingerprint is `SHA-256("repo.v1" + normalized repository key)`. The normalized
+key comes, in order, from the CI repository identity (for example `GITHUB_SERVER_URL` plus `GITHUB_REPOSITORY`),
+the local git `origin` remote URL, the git root commit using `SHA-256("git-root.v1" + root commit hash)`, or
+project-file content as a fallback. It is a stable, unsalted pseudonym of the consuming codebase, deliberately
+used to correlate the same project across machines and time. The per-installation machine salt applies only to
+the separate `installation_hash`. These fields distinguish projects/installations and count activation and repeat
+use; no raw identity is transmitted. Contract content, baseline documents, raw repository URLs, paths, commit
+identifiers, type/member names, enum labels, discriminator values, converter names, serializer configuration
+values, project-file content, and exception messages are never sent. The documented comparison caller-path bound
+is 250 ms on the Windows validation host, measured with both a no-op client and a client that blocks indefinitely.
+Disable telemetry with `KEELMATRIX_NO_TELEMETRY=1`; the shared client also honors its process and repository-local controls.
 See [PRIVACY.md](PRIVACY.md) for the product-specific contract.
 
 The runtime dependency graph is intentionally small: `System.Text.Json` `10.0.12` and

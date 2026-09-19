@@ -3,12 +3,20 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.Internal;
+using Xunit.Abstractions;
 
 namespace KeelMatrix.JsonDrift.Tests;
 
 public sealed partial class JsonDriftTelemetryTests
 {
     private static readonly string[] ExpectedClientMethods = ["TrackActivation", "TrackHeartbeat"];
+    private static readonly TimeSpan CallerPathBound = TimeSpan.FromMilliseconds(250);
+    private readonly ITestOutputHelper output;
+
+    public JsonDriftTelemetryTests(ITestOutputHelper output)
+    {
+        this.output = output;
+    }
 
     [Fact]
     public void BaselineCreationDoesNotRecordActivation()
@@ -94,13 +102,43 @@ public sealed partial class JsonDriftTelemetryTests
     }
 
     [Fact]
-    public void BlockingTelemetryClientCannotDelayComparisonAndBurstUsesOneWorker()
+    public void BlockingTelemetryClientMatchesNoOpTimingBoundAndBurstUsesOneWorker()
     {
         JsonContract baseline = JsonDrift.Extract(TelemetrySourceContext.Default.RootEnvelope);
+
+        NoOpClient noOpClient = new();
+        using JsonDriftTelemetry noOpTelemetry = new(() => noOpClient, respectProcessOptOut: false);
+        TimeSpan noOpLatency = MeasureComparison(noOpTelemetry, baseline);
+
         BlockingClient client = new();
         using JsonDriftTelemetry telemetry = new(() => client, respectProcessOptOut: false);
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        TimeSpan blockingLatency = MeasureComparison(telemetry, baseline);
 
+        Assert.True(client.Started.Wait(TimeSpan.FromSeconds(1)), "blocking client was not dispatched");
+        Assert.True(
+            noOpLatency < CallerPathBound,
+            $"no-op comparison caller path took {noOpLatency.TotalMilliseconds:N0} ms, above the documented 250 ms bound");
+        Assert.True(
+            blockingLatency < CallerPathBound,
+            $"blocking comparison caller path took {blockingLatency.TotalMilliseconds:N0} ms, above the documented 250 ms bound; no-op took {noOpLatency.TotalMilliseconds:N0} ms");
+        output.WriteLine(
+            $"timing evidence: no-op={noOpLatency.TotalMilliseconds:N3} ms, blocking={blockingLatency.TotalMilliseconds:N3} ms, bound={CallerPathBound.TotalMilliseconds:N0} ms");
+
+        for (int index = 0; index < 32; index++)
+        {
+            telemetry.RecordComparison();
+        }
+
+        Assert.Equal(1, telemetry.WorkerTaskCount);
+        Assert.Equal(1, client.MaximumConcurrentCalls);
+        Assert.Equal(1, client.CallThreadCount);
+
+        client.Release.Set();
+    }
+
+    private static TimeSpan MeasureComparison(JsonDriftTelemetry telemetry, JsonContract baseline)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
         using (JsonDriftTelemetryCoordinator.OverrideForTests(telemetry))
         {
             JsonDriftReport report = JsonDrift.Compare(
@@ -111,19 +149,7 @@ public sealed partial class JsonDriftTelemetryTests
         }
 
         stopwatch.Stop();
-        Assert.True(client.Started.Wait(TimeSpan.FromSeconds(1)), "blocking client was not dispatched");
-        Assert.True(
-            stopwatch.Elapsed < TimeSpan.FromMilliseconds(250),
-            $"comparison caller path took {stopwatch.Elapsed.TotalMilliseconds:N0} ms while telemetry was blocked");
-
-        for (int index = 0; index < 32; index++)
-        {
-            telemetry.RecordComparison();
-        }
-
-        Assert.Equal(1, client.MaximumConcurrentCalls);
-
-        client.Release.Set();
+        return stopwatch.Elapsed;
     }
 
     [Fact]
@@ -162,6 +188,7 @@ public sealed partial class JsonDriftTelemetryTests
     {
         private int activeCalls;
         private int maximumConcurrentCalls;
+        private readonly HashSet<int> callThreadIds = [];
 
         public ManualResetEventSlim Started { get; } = new();
 
@@ -169,10 +196,25 @@ public sealed partial class JsonDriftTelemetryTests
 
         public int MaximumConcurrentCalls => Volatile.Read(ref maximumConcurrentCalls);
 
+        public int CallThreadCount
+        {
+            get
+            {
+                lock (callThreadIds)
+                {
+                    return callThreadIds.Count;
+                }
+            }
+        }
+
         public void TrackActivation()
         {
             int active = Interlocked.Increment(ref activeCalls);
             UpdateMaximum(active);
+            lock (callThreadIds)
+            {
+                callThreadIds.Add(Environment.CurrentManagedThreadId);
+            }
             Started.Set();
             try
             {
@@ -197,6 +239,17 @@ public sealed partial class JsonDriftTelemetryTests
                     return;
                 }
             }
+        }
+    }
+
+    private sealed class NoOpClient : IJsonDriftTelemetryClient
+    {
+        public void TrackActivation()
+        {
+        }
+
+        public void TrackHeartbeat()
+        {
         }
     }
 

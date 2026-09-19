@@ -30,6 +30,7 @@ internal sealed class JsonDriftTelemetry : IJsonDriftTelemetry, IDisposable
     private IJsonDriftTelemetryClient? client;
     private Task? worker;
     private int workerStarted;
+    private int workerTaskCount;
     private int disposed;
 
     public JsonDriftTelemetry()
@@ -59,6 +60,9 @@ internal sealed class JsonDriftTelemetry : IJsonDriftTelemetry, IDisposable
                 return;
             }
 
+            // The comparison caller-path bound is 250 ms on the Windows validation host,
+            // including when the client blocks indefinitely. Keep this path non-blocking:
+            // TryWrite never waits for the capacity-1 queue and may drop a saturated signal.
             EnsureWorker();
             pendingComparisons.Writer.TryWrite(0);
         }
@@ -97,12 +101,15 @@ internal sealed class JsonDriftTelemetry : IJsonDriftTelemetry, IDisposable
         try
         {
             worker = Task.Run(ProcessQueueAsync);
+            Interlocked.Increment(ref workerTaskCount);
         }
         catch
         {
             Volatile.Write(ref workerStarted, 0);
         }
     }
+
+    internal int WorkerTaskCount => Volatile.Read(ref workerTaskCount);
 
     private async Task ProcessQueueAsync()
     {
