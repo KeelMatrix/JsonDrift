@@ -561,4 +561,5 @@ dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no
 The experiment prints every check with its expected classification and the measured result, and exits with a
 non-zero code when any measurement disagrees with the recorded classification. The measurements recorded here
 were produced on .NET 8.0.31 with `System.Text.Json` 10.0.12 (assembly version 10.0.0.0) on Windows 10
-(10.0.19045), using .NET SDK 8.0.425.
+(10.0.19045), using .NET SDK 8.0.425. This is the only validated platform claim for the `net8.0` release;
+Linux and macOS remain unverified and are not claimed.

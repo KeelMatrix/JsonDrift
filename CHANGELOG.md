@@ -9,7 +9,7 @@ All notable changes to this project are documented in this file. The format is b
 ### Added
 
 - Best-effort activation and weekly heartbeat integration through `KeelMatrix.Telemetry`, with comparison-only
-  activation semantics, an allowlisted aggregate summary, process opt-out handling, and failure isolation.
+  activation semantics, the shared client's standard event contract, process opt-out handling, and failure isolation.
 - Deterministic `ReaderBackward` contract comparison with complete structured change reports.
 - `JsonDrift.Compare`, `JsonDriftReport.AssertCompatible()`, and fail-closed diagnostics for incompatible or
   unsupported metadata.

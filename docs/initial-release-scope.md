@@ -79,6 +79,10 @@ so a later decision to ship them starts from measured behavior rather than from 
 
 **Recommendation: the first release targets `net8.0` only.**
 
+The supported platform claim for this release is `net8.0`, validated on Windows. Linux and macOS are not
+claimed because the rule matrix and package-consumer evidence have not been run on those platforms. Adding a
+platform claim later requires platform-specific validation rather than an assumption from the shared source.
+
 Evidence:
 
 * Every measurement in the rule matrix was produced on `net8.0` with the `System.Text.Json` 10.0.12 package

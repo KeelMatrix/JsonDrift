@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -7,15 +8,7 @@ namespace KeelMatrix.JsonDrift.Tests;
 
 public sealed partial class JsonDriftTelemetryTests
 {
-    private static readonly string[] AllowedPayloadFields =
-    [
-        "PackageVersion",
-        "TargetFramework",
-        "CompatibilityMode",
-        "RootContractCount",
-        "Outcome",
-        "SourceGeneratedMetadataUsed",
-    ];
+    private static readonly string[] ExpectedClientMethods = ["TrackActivation", "TrackHeartbeat"];
 
     [Fact]
     public void BaselineCreationDoesNotRecordActivation()
@@ -28,16 +21,17 @@ public sealed partial class JsonDriftTelemetryTests
             JsonBaseline.Create(TelemetrySourceContext.Default.RootEnvelope, Path.Combine(directory.Path, "baseline.json"), overwrite: false);
         }
 
-        Assert.Empty(telemetry.Payloads);
+        Assert.Equal(0, telemetry.ComparisonCalls);
     }
 
     [Fact]
-    public void ComparisonEmitsOnlyTheAllowlistedAggregatePayload()
+    public void ComparisonRequestsExactlyTheSharedActivationAndHeartbeatSignals()
     {
         using TemporaryDirectory directory = new();
         string path = Path.Combine(directory.Path, "baseline.json");
         JsonBaseline.Create(TelemetrySourceContext.Default.RootEnvelope, path, overwrite: false);
-        RecordingTelemetry telemetry = new();
+        CountingClient client = new();
+        using JsonDriftTelemetry telemetry = new(() => client, respectProcessOptOut: false);
 
         JsonDriftReport report;
         using (JsonDriftTelemetryCoordinator.OverrideForTests(telemetry))
@@ -46,75 +40,99 @@ public sealed partial class JsonDriftTelemetryTests
         }
 
         Assert.True(report.IsCompatible);
-        JsonDriftTelemetryPayload payload = Assert.Single(telemetry.Payloads);
-        Assert.Equal("0.1.0", payload.PackageVersion);
-        Assert.Equal("net8.0", payload.TargetFramework);
-        Assert.Equal("ReaderBackward", payload.CompatibilityMode);
-        Assert.Equal(1, payload.RootContractCount);
-        Assert.Equal("Compatible", payload.Outcome);
-        Assert.True(payload.SourceGeneratedMetadataUsed);
-
-        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
-        string[] fields = document.RootElement.EnumerateObject().Select(static property => property.Name).ToArray();
-        Assert.Equal(
-            AllowedPayloadFields,
-            fields);
-
-        string serialized = document.RootElement.GetRawText();
-        Assert.DoesNotContain("JsonDriftTelemetryTests", serialized, StringComparison.Ordinal);
-        Assert.DoesNotContain("KeelMatrix.JsonDrift.Tests", serialized, StringComparison.Ordinal);
-        Assert.DoesNotContain("RootEnvelope", serialized, StringComparison.Ordinal);
-        Assert.DoesNotContain("Sensitive", serialized, StringComparison.Ordinal);
+        Assert.True(client.ActivationObserved.Wait(TimeSpan.FromSeconds(1)), "activation was not dispatched");
+        Assert.True(client.HeartbeatObserved.Wait(TimeSpan.FromSeconds(1)), "heartbeat was not dispatched");
+        Assert.Equal(1, client.ActivationCalls);
+        Assert.Equal(1, client.HeartbeatCalls);
     }
 
     [Fact]
-    public void ThrowingOrDelayedTelemetryCannotChangeComparisonOutcome()
+    public void TelemetryClientReceivesNoProductOrIdentityPayload()
+    {
+        string[] methodNames = typeof(IJsonDriftTelemetryClient)
+            .GetMethods()
+            .OrderBy(static method => method.Name, StringComparer.Ordinal)
+            .Select(static method => method.Name)
+            .ToArray();
+
+        Assert.Equal(ExpectedClientMethods, methodNames);
+        Assert.All(
+            typeof(IJsonDriftTelemetryClient).GetMethods(),
+            static method => Assert.Empty(method.GetParameters()));
+
+        string received = string.Join(",", methodNames);
+        Assert.DoesNotContain("https://github.com/KeelMatrix/JsonDrift", received, StringComparison.Ordinal);
+        Assert.DoesNotContain(Path.GetFullPath(AppContext.BaseDirectory), received, StringComparison.Ordinal);
+        Assert.DoesNotContain("1f492b93eeb1c1c8cb2602edd5b36d8de7127473", received, StringComparison.Ordinal);
+        Assert.DoesNotContain("RootEnvelope", received, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sensitive", received, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ThrowingTelemetryClientCannotChangeComparisonOutcome()
     {
         JsonContract baseline = JsonDrift.Extract(TelemetrySourceContext.Default.RootEnvelope);
-
         JsonDriftReport expected = JsonDrift.Compare(
             TelemetrySourceContext.Default.RootEnvelope,
             baseline,
             JsonCompatibility.ReaderBackward);
+        ThrowingClient client = new();
+        using JsonDriftTelemetry telemetry = new(() => client, respectProcessOptOut: false);
 
-        JsonDriftTelemetry throwingTelemetry = new(() => new ThrowingClient());
-        using (JsonDriftTelemetryCoordinator.OverrideForTests(throwingTelemetry))
+        JsonDriftReport actual;
+        using (JsonDriftTelemetryCoordinator.OverrideForTests(telemetry))
         {
-            JsonDriftReport actual = JsonDrift.Compare(
+            actual = JsonDrift.Compare(
                 TelemetrySourceContext.Default.RootEnvelope,
                 baseline,
                 JsonCompatibility.ReaderBackward);
-
-            Assert.Equal(expected.Outcome, actual.Outcome);
-            Assert.Equal(expected.Changes.Select(static change => change.ToString()), actual.Changes.Select(static change => change.ToString()));
         }
 
-        JsonDriftTelemetry delayedTelemetry = new(() => new DelayedClient());
-        using (JsonDriftTelemetryCoordinator.OverrideForTests(delayedTelemetry))
+        Assert.Equal(expected.Outcome, actual.Outcome);
+        Assert.Equal(expected.Changes.Select(static change => change.ToString()), actual.Changes.Select(static change => change.ToString()));
+        Assert.True(client.Started.Wait(TimeSpan.FromSeconds(1)), "throwing client was not dispatched");
+    }
+
+    [Fact]
+    public void BlockingTelemetryClientCannotDelayComparisonAndBurstUsesOneWorker()
+    {
+        JsonContract baseline = JsonDrift.Extract(TelemetrySourceContext.Default.RootEnvelope);
+        BlockingClient client = new();
+        using JsonDriftTelemetry telemetry = new(() => client, respectProcessOptOut: false);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        using (JsonDriftTelemetryCoordinator.OverrideForTests(telemetry))
         {
-            JsonDriftReport actual = JsonDrift.Compare(
+            JsonDriftReport report = JsonDrift.Compare(
                 TelemetrySourceContext.Default.RootEnvelope,
                 baseline,
                 JsonCompatibility.ReaderBackward);
-
-            Assert.Equal(expected.Outcome, actual.Outcome);
-            Assert.Equal(expected.Changes.Select(static change => change.ToString()), actual.Changes.Select(static change => change.ToString()));
+            Assert.True(report.IsCompatible);
         }
+
+        stopwatch.Stop();
+        Assert.True(client.Started.Wait(TimeSpan.FromSeconds(1)), "blocking client was not dispatched");
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromMilliseconds(250),
+            $"comparison caller path took {stopwatch.Elapsed.TotalMilliseconds:N0} ms while telemetry was blocked");
+
+        for (int index = 0; index < 32; index++)
+        {
+            telemetry.RecordComparison();
+        }
+
+        Assert.Equal(1, client.MaximumConcurrentCalls);
+
+        client.Release.Set();
     }
 
     [Fact]
     public void ProcessOptOutPreventsSharedClientCalls()
     {
         CountingClient client = new();
-        JsonDriftTelemetry telemetry = new(() => client);
+        using JsonDriftTelemetry telemetry = new(() => client);
 
-        telemetry.RecordComparison(new JsonDriftTelemetryPayload(
-            "0.1.0",
-            "net8.0",
-            "ReaderBackward",
-            1,
-            "Compatible",
-            false));
+        telemetry.RecordComparison();
 
         Assert.Equal(0, client.ActivationCalls);
         Assert.Equal(0, client.HeartbeatCalls);
@@ -122,34 +140,90 @@ public sealed partial class JsonDriftTelemetryTests
 
     private sealed class RecordingTelemetry : IJsonDriftTelemetry
     {
-        public List<JsonDriftTelemetryPayload> Payloads { get; } = new();
+        public int ComparisonCalls { get; private set; }
 
-        public void RecordComparison(JsonDriftTelemetryPayload payload) => Payloads.Add(payload);
+        public void RecordComparison() => ComparisonCalls++;
     }
 
     private sealed class ThrowingClient : IJsonDriftTelemetryClient
     {
-        public void TrackActivation() => throw new InvalidOperationException("test-only telemetry failure");
+        public ManualResetEventSlim Started { get; } = new();
+
+        public void TrackActivation()
+        {
+            Started.Set();
+            throw new InvalidOperationException("test-only telemetry failure");
+        }
 
         public void TrackHeartbeat() => throw new InvalidOperationException("test-only telemetry failure");
     }
 
-    private sealed class DelayedClient : IJsonDriftTelemetryClient
+    private sealed class BlockingClient : IJsonDriftTelemetryClient
     {
-        public void TrackActivation() => Thread.Sleep(25);
+        private int activeCalls;
+        private int maximumConcurrentCalls;
 
-        public void TrackHeartbeat() => Thread.Sleep(25);
+        public ManualResetEventSlim Started { get; } = new();
+
+        public ManualResetEventSlim Release { get; } = new();
+
+        public int MaximumConcurrentCalls => Volatile.Read(ref maximumConcurrentCalls);
+
+        public void TrackActivation()
+        {
+            int active = Interlocked.Increment(ref activeCalls);
+            UpdateMaximum(active);
+            Started.Set();
+            try
+            {
+                Release.Wait();
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeCalls);
+            }
+        }
+
+        public void TrackHeartbeat()
+        {
+        }
+
+        private void UpdateMaximum(int active)
+        {
+            while (active > Volatile.Read(ref maximumConcurrentCalls))
+            {
+                if (Interlocked.CompareExchange(ref maximumConcurrentCalls, active, Volatile.Read(ref maximumConcurrentCalls)) == active)
+                {
+                    return;
+                }
+            }
+        }
     }
 
     private sealed class CountingClient : IJsonDriftTelemetryClient
     {
-        public int ActivationCalls { get; private set; }
+        private int activationCalls;
+        private int heartbeatCalls;
 
-        public int HeartbeatCalls { get; private set; }
+        public ManualResetEventSlim ActivationObserved { get; } = new();
 
-        public void TrackActivation() => ActivationCalls++;
+        public ManualResetEventSlim HeartbeatObserved { get; } = new();
 
-        public void TrackHeartbeat() => HeartbeatCalls++;
+        public int ActivationCalls => Volatile.Read(ref activationCalls);
+
+        public int HeartbeatCalls => Volatile.Read(ref heartbeatCalls);
+
+        public void TrackActivation()
+        {
+            Interlocked.Increment(ref activationCalls);
+            ActivationObserved.Set();
+        }
+
+        public void TrackHeartbeat()
+        {
+            Interlocked.Increment(ref heartbeatCalls);
+            HeartbeatObserved.Set();
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable

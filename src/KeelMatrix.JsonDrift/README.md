@@ -4,6 +4,9 @@
 
 Version 1 targets `net8.0` and ships the `ReaderBackward` compatibility policy only. Reader-backward means that documented JSON wire data accepted by the earlier contract remains readable without loss under the later contract. It does not claim source/API compatibility or business/semantic compatibility.
 
+The package has been validated on Windows. Linux and macOS are not claimed for this release because equivalent
+platform evidence is not available yet.
+
 Install it with:
 
 ```pwsh
@@ -58,14 +61,15 @@ Unsupported metadata is deny-by-default and includes a diagnostic naming the off
 
 The comparison core is offline. A real comparison against an accepted baseline makes a best-effort request
 to `KeelMatrix.Telemetry` for activation and a low-frequency weekly heartbeat; baseline creation alone does
-not activate telemetry. Telemetry failure cannot change comparison or assertion results.
-
-Only the package version, target framework, compatibility mode, coarse root count, outcome, and
-source-generated-metadata flag are used in the product comparison summary. Contract and baseline content,
-paths, domain identifiers, converter names, enum or discriminator values, serializer configuration values,
-and arbitrary exception messages never leave the machine. Set `KEELMATRIX_NO_TELEMETRY=1` to opt out; the
-shared client also honors its process and repository-local controls. The full product-specific contract is
-in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
+not activate telemetry. JsonDrift sends no product-specific comparison payload. The shared activation and
+heartbeat events carry their standard event, tool/version, schema, pseudonymous project/install fingerprint,
+runtime/OS/CI/time or week fields. The project fingerprint is a salted hash derived from the project's
+location, is not reversible by ordinary analytics, and is used only to distinguish projects and count repeat
+use. Contract and baseline content, raw repository URLs, absolute paths, commit identifiers, domain
+identifiers, type/member names, converter names, enum or discriminator values, serializer configuration
+values, and arbitrary exception messages never leave the machine. Telemetry failure cannot change comparison
+or assertion results. Set `KEELMATRIX_NO_TELEMETRY=1` to opt out; the shared client also honors its process
+and repository-local controls. The full product-specific contract is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
 
 ## Deeper documentation
 

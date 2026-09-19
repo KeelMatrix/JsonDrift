@@ -78,7 +78,7 @@ public static class JsonDrift
     internal static JsonDriftReport Compare(JsonContract contract, JsonContract baseline, JsonCompatibility compatibility)
     {
         JsonDriftReport report = Internal.ContractComparison.Compare(baseline, contract, compatibility);
-        Internal.JsonDriftTelemetryCoordinator.RecordComparison(contract, compatibility, report);
+        Internal.JsonDriftTelemetryCoordinator.RecordComparison();
         return report;
     }
 

@@ -1,4 +1,5 @@
 using System.Threading;
+using System.Threading.Channels;
 using KeelMatrix.Telemetry;
 
 namespace KeelMatrix.JsonDrift.Internal;
@@ -12,43 +13,117 @@ internal interface IJsonDriftTelemetryClient
 
 internal interface IJsonDriftTelemetry
 {
-    void RecordComparison(JsonDriftTelemetryPayload payload);
+    void RecordComparison();
 }
 
-internal sealed record JsonDriftTelemetryPayload(
-    string PackageVersion,
-    string TargetFramework,
-    string CompatibilityMode,
-    int RootContractCount,
-    string Outcome,
-    bool SourceGeneratedMetadataUsed);
-
-internal sealed class JsonDriftTelemetry : IJsonDriftTelemetry
+internal sealed class JsonDriftTelemetry : IJsonDriftTelemetry, IDisposable
 {
+    private readonly Channel<byte> pendingComparisons = Channel.CreateBounded<byte>(
+        new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
+            SingleWriter = false,
+        });
     private readonly Func<IJsonDriftTelemetryClient> clientFactory;
+    private readonly bool respectProcessOptOut;
     private IJsonDriftTelemetryClient? client;
+    private Task? worker;
+    private int workerStarted;
+    private int disposed;
 
     public JsonDriftTelemetry()
-        : this(() => new SharedTelemetryClient())
+        : this(() => new SharedTelemetryClient(), respectProcessOptOut: true)
     {
     }
 
-    internal JsonDriftTelemetry(Func<IJsonDriftTelemetryClient> clientFactory)
+    internal JsonDriftTelemetry(Func<IJsonDriftTelemetryClient> clientFactory, bool respectProcessOptOut = true)
     {
         this.clientFactory = clientFactory;
+        this.respectProcessOptOut = respectProcessOptOut;
     }
 
-    public void RecordComparison(JsonDriftTelemetryPayload payload)
+    public void RecordComparison()
     {
         try
         {
             // KeelMatrix development and CI set the shared process opt-out. The shared
             // client resolves repository-local opt-out before delivery as well.
-            if (TelemetryOptOut.IsProcessDisabled())
+            if (respectProcessOptOut && TelemetryOptOut.IsProcessDisabled())
             {
                 return;
             }
 
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return;
+            }
+
+            EnsureWorker();
+            pendingComparisons.Writer.TryWrite(0);
+        }
+        catch
+        {
+            // Telemetry is best-effort and must never affect comparison behavior, including
+            // when a custom client or the background dispatch cannot be created.
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
+        pendingComparisons.Writer.TryComplete();
+        try
+        {
+            worker?.Wait(TimeSpan.FromSeconds(1));
+        }
+        catch
+        {
+            // Test cleanup must not turn a best-effort telemetry failure into a test failure.
+        }
+    }
+
+    private void EnsureWorker()
+    {
+        if (Interlocked.CompareExchange(ref workerStarted, 1, 0) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            worker = Task.Run(ProcessQueueAsync);
+        }
+        catch
+        {
+            Volatile.Write(ref workerStarted, 0);
+        }
+    }
+
+    private async Task ProcessQueueAsync()
+    {
+        try
+        {
+            await foreach (byte _ in pendingComparisons.Reader.ReadAllAsync().ConfigureAwait(false))
+            {
+                EmitSharedSignals();
+            }
+        }
+        catch
+        {
+            // The worker is deliberately isolated from the comparison caller and must never
+            // expose a client, queue, or shutdown failure.
+        }
+    }
+
+    private void EmitSharedSignals()
+    {
+        try
+        {
             client ??= clientFactory();
             client.TrackActivation();
             client.TrackHeartbeat();
@@ -74,22 +149,11 @@ internal static class JsonDriftTelemetryCoordinator
     private static readonly AsyncLocal<IJsonDriftTelemetry?> TestOverride = new();
     private static readonly IJsonDriftTelemetry Shared = new JsonDriftTelemetry();
 
-    internal static void RecordComparison(
-        JsonContract contract,
-        JsonCompatibility compatibility,
-        JsonDriftReport report)
+    internal static void RecordComparison()
     {
-        JsonDriftTelemetryPayload payload = new(
-            PackageVersion: typeof(JsonDrift).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
-            TargetFramework: "net8.0",
-            CompatibilityMode: compatibility.ToString(),
-            RootContractCount: 1,
-            Outcome: report.Outcome.ToString(),
-            SourceGeneratedMetadataUsed: contract.UsesSourceGeneratedMetadata);
-
         try
         {
-            (TestOverride.Value ?? Shared).RecordComparison(payload);
+            (TestOverride.Value ?? Shared).RecordComparison();
         }
         catch
         {

@@ -19,6 +19,11 @@ KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effec
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
   incompatible or unsupported result.
 
+## Supported platform
+
+The package targets `net8.0` and has been validated on Windows. Linux and macOS are not claimed for this
+release because equivalent platform evidence is not available yet.
+
 ## Telemetry and privacy
 
 The extraction and comparison core is offline and does not require network access. After a real comparison
@@ -26,12 +31,16 @@ against an accepted baseline, JsonDrift makes a best-effort request to the share
 client for one activation signal and its low-frequency weekly heartbeat. Baseline creation alone is not an
 activation. Telemetry failures never change a report or assertion result.
 
-The comparison summary is limited to package version, target framework, compatibility mode, a coarse root
-count, the comparison outcome, and whether source-generated metadata was used. Contract content, baseline
-documents, paths, namespaces, type/property names, converter names, enum values, discriminator values,
-serializer configuration values, and exception messages are not sent. Disable telemetry with
-`KEELMATRIX_NO_TELEMETRY=1`; the shared client also honors its process and repository-local controls. See
-[PRIVACY.md](PRIVACY.md) for the product-specific contract.
+JsonDrift sends no product-specific comparison payload. The shared client emits its standard activation and
+heartbeat fields: event kind, the `jsondrift` tool identifier, package and telemetry versions, schema version,
+pseudonymous project and installation fingerprints, and the standard activation runtime/OS/CI/time or
+heartbeat-week field. The project fingerprint is a salted hash derived from the project's location; ordinary
+analytics cannot reverse it, and no raw identity is transmitted. These fields are used only to distinguish
+projects/installations and count activation and repeat use. Contract content, baseline documents, raw repository
+URLs, absolute paths, commit identifiers, namespaces, type/member names, converter names, enum values,
+discriminator values, serializer configuration values, and exception messages are not sent. Disable telemetry
+with `KEELMATRIX_NO_TELEMETRY=1`; the shared client also honors its process and repository-local controls.
+See [PRIVACY.md](PRIVACY.md) for the product-specific contract.
 
 The runtime dependency graph is intentionally small: `System.Text.Json` `10.0.12` and
 `KeelMatrix.Telemetry` `[0.1.0]`. The analyzer and SourceLink packages are build-only dependencies and do not
