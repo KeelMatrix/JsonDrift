@@ -11,7 +11,7 @@ internal static class MatrixSummary
     public const int SummaryCheckCount = 12;
 
     /// <summary>Executed checks in the matrix, asserted by <c>D04.matrix.check-count</c>.</summary>
-    public const int ExpectedCheckCount = 246;
+    public const int ExpectedCheckCount = 250;
 
     /// <summary>Measured changes compatible under both <c>ReaderBackward</c> and <c>WriterForward</c>.</summary>
     public const int ExpectedFullCompatibleCount = 6;

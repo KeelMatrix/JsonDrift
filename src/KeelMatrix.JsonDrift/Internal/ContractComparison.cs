@@ -333,7 +333,11 @@ internal static class ContractComparison
                     continue;
                 }
 
-                changes.Add(memberPath, JsonDriftClassification.Incompatible, PropertyRemoved, "the later contract no longer preserves a member written by the earlier contract");
+                changes.Add(
+                    memberPath,
+                    JsonDriftClassification.Incompatible,
+                    PropertyRemoved,
+                    RemovedMemberReason(oldByName[name]));
                 continue;
             }
 
@@ -774,6 +778,11 @@ internal static class ContractComparison
         TryGetConstructorBinding(member, out JsonElement binding)
             ? binding.GetProperty("name").GetString() ?? string.Empty
             : string.Empty;
+
+    private static string RemovedMemberReason(JsonElement member) =>
+        TryGetConstructorBinding(member, out _)
+            ? "the later contract no longer preserves a member written by the earlier contract; the removed member was bound by a constructor parameter"
+            : "the later contract no longer preserves a member written by the earlier contract";
 
     private static string NodePath(JsonElement node) => node.GetProperty("path").GetString()!;
 

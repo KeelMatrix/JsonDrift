@@ -37,6 +37,10 @@ internal sealed class CustomerV2
     public string Name { get; set; } = string.Empty;
 }
 
+internal sealed record CustomerConstructorBoundV1(string Name, string Email);
+
+internal sealed record CustomerConstructorBoundV2(string Name);
+
 // R03 - serialized property name
 internal sealed class AccountV1
 {

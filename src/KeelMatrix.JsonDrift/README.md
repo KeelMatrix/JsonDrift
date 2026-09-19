@@ -53,3 +53,11 @@ Reading never rewrites a baseline.
 Canonical baseline documents use `formatVersion: 1`. The format is versioned; malformed, foreign, unsupported, future, oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated, stable in ordering, and contain no timestamps or host paths.
 
 Unsupported metadata is deny-by-default and includes a diagnostic naming the offending declaration or feature where available. Custom converters are not executed to reverse-engineer behavior.
+
+## Deeper documentation
+
+- [Repository README](https://github.com/KeelMatrix/JsonDrift/blob/main/README.md)
+- [Compatibility rules](https://github.com/KeelMatrix/JsonDrift/blob/main/docs/compatibility-rules.md)
+- [Initial-release scope](https://github.com/KeelMatrix/JsonDrift/blob/main/docs/initial-release-scope.md)
+- [Security policy](https://github.com/KeelMatrix/JsonDrift/blob/main/SECURITY.md)
+- [Privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md)

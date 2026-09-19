@@ -17,6 +17,7 @@ internal static class PropertyRules
 
         AddPropertyAddition(results, reflection);
         AddPropertyRemoval(results, reflection);
+        AddConstructorBoundPropertyRemoval(results, reflection);
         AddSerializedNameChange(results, reflection);
 
         return results;
@@ -126,5 +127,47 @@ internal static class PropertyRules
             "Serialized property-name change",
             "a rename is combined with capturing unrecognized members",
             WireProbe.Across(earlier, accountV1, accountV2WithExtensionData)));
+    }
+
+    private static void AddConstructorBoundPropertyRemoval(List<CheckOutcome> results, JsonSerializerOptions reflection)
+    {
+        JsonTypeInfo v1 = reflection.GetTypeInfo(typeof(CustomerConstructorBoundV1));
+        JsonTypeInfo v2 = reflection.GetTypeInfo(typeof(CustomerConstructorBoundV2));
+        var earlier = new CustomerConstructorBoundV1("Ada", "ada@example.com");
+        var later = new CustomerConstructorBoundV2("Ada");
+
+        IReadOnlyList<CheckOutcome> checks = Check.Classify(
+            "R02.property-removal.constructor-bound",
+            "Property removal",
+            "a constructor-bound serialized member is removed from the contract",
+            WireProbe.Across(earlier, v1, v2),
+            readerBackwardCompatible: false,
+            WireProbe.Across(later, v2, v1),
+            writerForwardCompatible: true);
+
+        JsonDriftReport report = JsonDrift.Compare(v2, JsonDrift.Extract(v1), JsonCompatibility.ReaderBackward);
+        const string expectedReason = "the later contract no longer preserves a member written by the earlier contract; the removed member was bound by a constructor parameter";
+        bool reportMatches = report.Outcome == JsonDriftClassification.Incompatible &&
+            report.Changes.Count == 1 &&
+            report.Changes[0].Path == "root.Email" &&
+            report.Changes[0].RuleId == "R02.property-removal" &&
+            report.Changes[0].Classification == JsonDriftClassification.Incompatible &&
+            report.Changes[0].Reason == expectedReason;
+
+        CheckOutcome reader = checks[0];
+        CheckOutcome[] updated = checks.ToArray();
+        updated[0] = reader with
+        {
+            Measured = $"{reader.Measured}; report={(reportMatches ? "R02.property-removal" : "mismatch")}",
+            Observation = $"{reader.Observation}; report={report.Outcome}; reason={report.Changes.SingleOrDefault()?.Reason ?? "missing"}",
+            Passed = reader.Passed && reportMatches,
+        };
+
+        results.AddRange(updated);
+        results.Add(Check.Compatible(
+            "R02.property-removal.constructor-bound.control",
+            "Property removal",
+            "the constructor-bound contract is unchanged",
+            WireProbe.Across(later, v2, v2)));
     }
 }

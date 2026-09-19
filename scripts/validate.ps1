@@ -26,6 +26,13 @@ $canonicalFileName = 'order-envelope.contract.json'
 $expectedPackageId = 'KeelMatrix.JsonDrift'
 $expectedPackageVersion = '0.1.0'
 $requiredIconPath = Join-Path $repoRoot 'icon.png'
+$documentationLinks = @(
+    'https://github.com/KeelMatrix/JsonDrift/blob/main/README.md',
+    'https://github.com/KeelMatrix/JsonDrift/blob/main/docs/compatibility-rules.md',
+    'https://github.com/KeelMatrix/JsonDrift/blob/main/docs/initial-release-scope.md',
+    'https://github.com/KeelMatrix/JsonDrift/blob/main/SECURITY.md',
+    'https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md'
+)
 $executed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $failures = 0
 
@@ -152,6 +159,16 @@ function Assert-PackageArtifact {
 
         Write-Host "package entries: $($actualEntries -join ', ')"
 
+        $packedReadme = [System.Text.Encoding]::UTF8.GetString((Get-ZipEntryBytes -Archive $archive -Name 'README.md'))
+        $missingDocumentationLinks = @($documentationLinks | Where-Object {
+                $packedReadme.IndexOf([string]$_, [System.StringComparison]::Ordinal) -lt 0
+            })
+        if ($missingDocumentationLinks.Count -gt 0) {
+            throw "packed README is missing required deeper-documentation links: $($missingDocumentationLinks -join ', ')"
+        }
+
+        Write-Host "packed README deep-documentation links: $($documentationLinks.Count) verified"
+
         $nuspecBytes = Get-ZipEntryBytes -Archive $archive -Name "$expectedPackageId.nuspec"
         $nuspec = [System.Xml.XmlDocument]::new()
         $nuspecStream = [System.IO.MemoryStream]::new($nuspecBytes)
@@ -186,7 +203,11 @@ function Assert-PackageArtifact {
 
         $physicalIcon = [System.IO.File]::ReadAllBytes($requiredIconPath)
         $packedIcon = Get-ZipEntryBytes -Archive $archive -Name 'icon.png'
-        if (-not [System.Linq.Enumerable]::SequenceEqual($physicalIcon, $packedIcon)) {
+        $physicalIconHash = Get-Sha256 -Bytes $physicalIcon
+        $packedIconHash = Get-Sha256 -Bytes $packedIcon
+        Write-Host "icon sha256 (repository): $physicalIconHash"
+        Write-Host "icon sha256 (packed):     $packedIconHash"
+        if ($physicalIconHash -cne $packedIconHash -or -not [System.Linq.Enumerable]::SequenceEqual($physicalIcon, $packedIcon)) {
             throw 'packed icon bytes do not match the required repository icon'
         }
     }

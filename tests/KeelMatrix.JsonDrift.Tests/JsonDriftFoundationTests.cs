@@ -195,6 +195,25 @@ public sealed partial class JsonDriftFoundationTests
     }
 
     [Fact]
+    public void CompareReportsConstructorBoundRemovalAsR02WithBindingContext()
+    {
+        JsonContract baseline = JsonDrift.Extract<ConstructorBoundRemovalV1>(ReflectionOptions());
+        JsonDriftReport report = JsonDrift.Compare(
+            ReflectionOptions().GetTypeInfo(typeof(ConstructorBoundRemovalV2)),
+            baseline,
+            JsonCompatibility.ReaderBackward);
+
+        JsonDriftChange change = Assert.Single(report.Changes);
+        Assert.Equal(JsonDriftClassification.Incompatible, report.Outcome);
+        Assert.Equal("root.Email", change.Path);
+        Assert.Equal("R02.property-removal", change.RuleId);
+        Assert.Equal(JsonDriftClassification.Incompatible, change.Classification);
+        Assert.Equal(
+            "the later contract no longer preserves a member written by the earlier contract; the removed member was bound by a constructor parameter",
+            change.Reason);
+    }
+
+    [Fact]
     public void CompareFailsClosedForUnsupportedConverterWithoutExecutingIt()
     {
         JsonSerializerOptions options = ReflectionOptions();
@@ -599,6 +618,10 @@ public sealed partial class JsonDriftFoundationTests
     private sealed record BindingRenameV1(decimal Value);
 
     private sealed record BindingRenameV2(decimal Amount);
+
+    private sealed record ConstructorBoundRemovalV1(string Name, string Email);
+
+    private sealed record ConstructorBoundRemovalV2(string Name);
 
     private sealed class RecursiveNode
     {

@@ -73,6 +73,14 @@ The measured classification rules and their evidence remain in
 [docs/compatibility-rules.md](docs/compatibility-rules.md). The initial-release decisions are in
 [docs/initial-release-scope.md](docs/initial-release-scope.md).
 
+## Deeper documentation
+
+- [Repository README](https://github.com/KeelMatrix/JsonDrift/blob/main/README.md)
+- [Compatibility rules](https://github.com/KeelMatrix/JsonDrift/blob/main/docs/compatibility-rules.md)
+- [Initial-release scope](https://github.com/KeelMatrix/JsonDrift/blob/main/docs/initial-release-scope.md)
+- [Security policy](https://github.com/KeelMatrix/JsonDrift/blob/main/SECURITY.md)
+- [Privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md)
+
 ## Build and test
 
 ```pwsh
