@@ -1,11 +1,23 @@
-# Security
+# Security Policy
+
+## Reporting a Vulnerability
 
 Please report vulnerabilities privately through
-[GitHub Security Advisories](https://github.com/KeelMatrix/JsonDrift/security/advisories/new). Do not include
-secrets or sensitive contract documents in a public issue.
+[GitHub Security Advisories](https://github.com/KeelMatrix/JsonDrift/security/advisories/new). Do not disclose
+vulnerabilities through a public issue. Include the affected package version, a concise reproduction, the
+security impact, the runtime and operating system, and only sanitized contract or baseline details; do not
+include secrets or sensitive contract documents.
 
-The supported version is the latest released version of `KeelMatrix.JsonDrift`. Development builds are not
-supported release targets.
+Ordinary defects that do not involve a security vulnerability may be reported through the repository issue
+tracker. This policy is for vulnerability disclosure and is separate from ordinary bug and community-conduct
+reporting.
+
+## Supported Versions
+
+The latest released version of `KeelMatrix.JsonDrift` is supported. Development builds are not supported release
+targets.
+
+## Security Considerations
 
 Contract documents and baselines are treated as source-code-level information: they contain property names,
 structural type information, enum labels, and discriminator values that describe an application's internals.
