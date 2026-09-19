@@ -153,7 +153,14 @@ function Assert-PackageArtifact {
         Write-Host "package entries: $($actualEntries -join ', ')"
 
         $nuspecBytes = Get-ZipEntryBytes -Archive $archive -Name "$expectedPackageId.nuspec"
-        $nuspec = [xml][System.Text.Encoding]::UTF8.GetString($nuspecBytes)
+        $nuspec = [System.Xml.XmlDocument]::new()
+        $nuspecStream = [System.IO.MemoryStream]::new($nuspecBytes)
+        try {
+            $nuspec.Load($nuspecStream)
+        }
+        finally {
+            $nuspecStream.Dispose()
+        }
         $metadata = $nuspec.SelectSingleNode("/*[local-name()='package']/*[local-name()='metadata']")
         if ($null -eq $metadata) {
             throw 'package nuspec is missing metadata'
