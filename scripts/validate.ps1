@@ -110,6 +110,21 @@ function Get-ZipEntryBytes {
     }
 }
 
+function Get-RequiredXmlText {
+    param(
+        [Parameter(Mandatory = $true)][System.Xml.XmlNode]$Parent,
+        [Parameter(Mandatory = $true)][string]$LocalName,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    $nodes = @($Parent.SelectNodes("*[local-name()='$LocalName']"))
+    if ($nodes.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$nodes[0].InnerText)) {
+        throw "$Description is missing or ambiguous"
+    }
+
+    return [string]$nodes[0].InnerText
+}
+
 function Assert-PngIcon {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -151,9 +166,9 @@ function Assert-PackageArtifact {
             "lib/net8.0/$expectedPackageId.xml"
         ) | Sort-Object
         $actualEntries = @($archive.Entries | ForEach-Object FullName | Sort-Object)
-        $generatedMetadataEntries = @($actualEntries | Where-Object { $_ -match '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
-        $unexpectedEntries = @($actualEntries | Where-Object { $_ -cnotin $expectedFixedEntries -and $_ -notmatch '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
-        if ($generatedMetadataEntries.Count -ne 1 -or $unexpectedEntries.Count -ne 0 -or $actualEntries.Count -ne ($expectedFixedEntries.Count + 1)) {
+        $corePropertiesEntries = @($actualEntries | Where-Object { $_ -cmatch '^package/services/metadata/core-properties/[^/]+\.psmdcp$' })
+        $unexpectedEntries = @($actualEntries | Where-Object { $_ -cnotin $expectedFixedEntries -and $_ -cnotin $corePropertiesEntries })
+        if ($corePropertiesEntries.Count -ne 1 -or $unexpectedEntries.Count -ne 0 -or $actualEntries.Count -ne ($expectedFixedEntries.Count + 1)) {
             throw "package entries differ from the explicit intended artifact set. Expected fixed entries: $($expectedFixedEntries -join ', '); expected one generated core-properties entry; actual: $($actualEntries -join ', ')"
         }
 
@@ -183,12 +198,48 @@ function Assert-PackageArtifact {
             throw 'package nuspec is missing metadata'
         }
 
-        if ($metadata.SelectSingleNode("*[local-name()='id']").InnerText -cne $expectedPackageId -or
-            $metadata.SelectSingleNode("*[local-name()='version']").InnerText -cne $expectedPackageVersion -or
-            $metadata.SelectSingleNode("*[local-name()='readme']").InnerText -cne 'README.md' -or
-            $metadata.SelectSingleNode("*[local-name()='icon']").InnerText -cne 'icon.png') {
+        $nuspecId = Get-RequiredXmlText -Parent $metadata -LocalName 'id' -Description 'package nuspec id'
+        $nuspecVersion = Get-RequiredXmlText -Parent $metadata -LocalName 'version' -Description 'package nuspec version'
+        $nuspecAuthors = Get-RequiredXmlText -Parent $metadata -LocalName 'authors' -Description 'package nuspec authors'
+        $nuspecDescription = Get-RequiredXmlText -Parent $metadata -LocalName 'description' -Description 'package nuspec description'
+        $nuspecReadme = Get-RequiredXmlText -Parent $metadata -LocalName 'readme' -Description 'package nuspec README'
+        $nuspecIcon = Get-RequiredXmlText -Parent $metadata -LocalName 'icon' -Description 'package nuspec icon'
+        if ($nuspecId -cne $expectedPackageId -or
+            $nuspecVersion -cne $expectedPackageVersion -or
+            $nuspecReadme -cne 'README.md' -or
+            $nuspecIcon -cne 'icon.png') {
             throw 'package identity, version, README, or icon metadata is incorrect'
         }
+
+        $corePropertiesBytes = Get-ZipEntryBytes -Archive $archive -Name $corePropertiesEntries[0]
+        $coreProperties = [System.Xml.XmlDocument]::new()
+        $corePropertiesStream = [System.IO.MemoryStream]::new($corePropertiesBytes)
+        try {
+            $coreProperties.Load($corePropertiesStream)
+        }
+        finally {
+            $corePropertiesStream.Dispose()
+        }
+
+        $corePropertiesRoot = $coreProperties.SelectSingleNode("/*[local-name()='coreProperties']")
+        if ($null -eq $corePropertiesRoot) {
+            throw "core-properties entry '$($corePropertiesEntries[0])' is missing a coreProperties root"
+        }
+
+        $coreCreator = Get-RequiredXmlText -Parent $corePropertiesRoot -LocalName 'creator' -Description 'core-properties creator'
+        $coreDescription = Get-RequiredXmlText -Parent $corePropertiesRoot -LocalName 'description' -Description 'core-properties description'
+        $coreIdentifier = Get-RequiredXmlText -Parent $corePropertiesRoot -LocalName 'identifier' -Description 'core-properties identifier'
+        $coreVersion = Get-RequiredXmlText -Parent $corePropertiesRoot -LocalName 'version' -Description 'core-properties version'
+        if ($coreCreator -cne $nuspecAuthors -or
+            $coreDescription -cne $nuspecDescription -or
+            $coreIdentifier -cne $expectedPackageId -or
+            $coreIdentifier -cne $nuspecId -or
+            $coreVersion -cne $expectedPackageVersion -or
+            $coreVersion -cne $nuspecVersion) {
+            throw "core-properties content is inconsistent with package identity or nuspec metadata: $($corePropertiesEntries[0])"
+        }
+
+        Write-Host "core-properties: $($corePropertiesEntries[0]) (identity, version, authors, description verified)"
 
         $license = $metadata.SelectSingleNode("*[local-name()='license']")
         $repository = $metadata.SelectSingleNode("*[local-name()='repository']")
