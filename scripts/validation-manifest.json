@@ -1,6 +1,7 @@
 {
   "version": 1,
   "requiredChecks": [
+    "telemetry-disabled",
     "restore",
     "format",
     "build-release",
@@ -8,6 +9,8 @@
     "phase0-matrix",
     "canonical-determinism",
     "package",
+    "package-gate-regressions",
+    "package-consumer",
     "manifest"
   ]
 }

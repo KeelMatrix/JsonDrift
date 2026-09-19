@@ -54,6 +54,19 @@ Canonical baseline documents use `formatVersion: 1`. The format is versioned; ma
 
 Unsupported metadata is deny-by-default and includes a diagnostic naming the offending declaration or feature where available. Custom converters are not executed to reverse-engineer behavior.
 
+## Telemetry and privacy
+
+The comparison core is offline. A real comparison against an accepted baseline makes a best-effort request
+to `KeelMatrix.Telemetry` for activation and a low-frequency weekly heartbeat; baseline creation alone does
+not activate telemetry. Telemetry failure cannot change comparison or assertion results.
+
+Only the package version, target framework, compatibility mode, coarse root count, outcome, and
+source-generated-metadata flag are used in the product comparison summary. Contract and baseline content,
+paths, domain identifiers, converter names, enum or discriminator values, serializer configuration values,
+and arbitrary exception messages never leave the machine. Set `KEELMATRIX_NO_TELEMETRY=1` to opt out; the
+shared client also honors its process and repository-local controls. The full product-specific contract is
+in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
+
 ## Deeper documentation
 
 - [Repository README](https://github.com/KeelMatrix/JsonDrift/blob/main/README.md)

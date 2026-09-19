@@ -26,6 +26,7 @@ $canonicalFileName = 'order-envelope.contract.json'
 $expectedPackageId = 'KeelMatrix.JsonDrift'
 $expectedPackageVersion = '0.1.0'
 $requiredIconPath = Join-Path $repoRoot 'icon.png'
+$consumerSmokeScript = Join-Path $PSScriptRoot 'consumer-smoke.ps1'
 $documentationLinks = @(
     'https://github.com/KeelMatrix/JsonDrift/blob/main/README.md',
     'https://github.com/KeelMatrix/JsonDrift/blob/main/docs/compatibility-rules.md',
@@ -35,6 +36,11 @@ $documentationLinks = @(
 )
 $executed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $failures = 0
+
+# Repository development and validation must never count as production demand.
+$env:KEELMATRIX_NO_TELEMETRY = '1'
+$env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+$env:DO_NOT_TRACK = '1'
 
 function Write-Section {
     param([Parameter(Mandatory = $true)][string]$Text)
@@ -54,11 +60,16 @@ function Invoke-Check {
     }
 
     Write-Host "check: $Id"
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         & $Action
+        $stopwatch.Stop()
+        Write-Host ("duration: {0:F3}s" -f $stopwatch.Elapsed.TotalSeconds)
         Write-Host "passed: $Description"
     }
     catch {
+        $stopwatch.Stop()
+        Write-Host ("duration: {0:F3}s" -f $stopwatch.Elapsed.TotalSeconds)
         $script:failures++
         Write-Host "FAILED: $Description"
         Write-Host $_.Exception.Message
@@ -125,6 +136,21 @@ function Get-RequiredXmlText {
     return [string]$nodes[0].InnerText
 }
 
+function Test-TruthyEnvironmentValue {
+    param([string]$Value)
+    return $null -ne $Value -and $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'y', 'on')
+}
+
+function Assert-RepositoryTelemetryDisabled {
+    $keys = @('KEELMATRIX_NO_TELEMETRY', 'DOTNET_CLI_TELEMETRY_OPTOUT', 'DO_NOT_TRACK')
+    $enabled = @($keys | Where-Object { -not (Test-TruthyEnvironmentValue ([Environment]::GetEnvironmentVariable($_))) })
+    if ($enabled.Count -gt 0) {
+        throw "repository validation telemetry opt-out is not active for: $($enabled -join ', ')"
+    }
+
+    Write-Host "telemetry disabled: $($keys -join ', ')"
+}
+
 function Assert-PngIcon {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -166,7 +192,9 @@ function Assert-PackageArtifact {
             "lib/net8.0/$expectedPackageId.xml"
         ) | Sort-Object
         $actualEntries = @($archive.Entries | ForEach-Object FullName | Sort-Object)
-        $corePropertiesEntries = @($actualEntries | Where-Object { $_ -cmatch '^package/services/metadata/core-properties/[^/]+\.psmdcp$' })
+        # This is a deny-by-default packaging gate. A new SDK-generated entry form must be
+        # reviewed and allowlisted rather than silently accepted as an arbitrary .psmdcp file.
+        $corePropertiesEntries = @($actualEntries | Where-Object { $_ -cmatch '^package/services/metadata/core-properties/(?:[0-9a-f]{32}|nuget)\.psmdcp$' })
         $unexpectedEntries = @($actualEntries | Where-Object { $_ -cnotin $expectedFixedEntries -and $_ -cnotin $corePropertiesEntries })
         if ($corePropertiesEntries.Count -ne 1 -or $unexpectedEntries.Count -ne 0 -or $actualEntries.Count -ne ($expectedFixedEntries.Count + 1)) {
             throw "package entries differ from the explicit intended artifact set. Expected fixed entries: $($expectedFixedEntries -join ', '); expected one generated core-properties entry; actual: $($actualEntries -join ', ')"
@@ -252,6 +280,24 @@ function Assert-PackageArtifact {
             throw 'package repository metadata is missing or incorrect'
         }
 
+        $dependencyGroups = @($metadata.SelectNodes("*[local-name()='dependencies']/*[local-name()='group']"))
+        if ($dependencyGroups.Count -ne 1 -or $dependencyGroups[0].GetAttribute('targetFramework') -cne 'net8.0') {
+            throw 'package runtime dependency groups are not exactly the intended net8.0 group'
+        }
+
+        $runtimeDependencies = @($dependencyGroups[0].SelectNodes("*[local-name()='dependency']") | ForEach-Object {
+                "$($_.GetAttribute('id'))|$($_.GetAttribute('version'))"
+            } | Sort-Object)
+        $expectedRuntimeDependencies = @(
+            'KeelMatrix.Telemetry|[0.1.0]',
+            'System.Text.Json|10.0.12'
+        ) | Sort-Object
+        if (-not [System.Linq.Enumerable]::SequenceEqual([string[]]$runtimeDependencies, [string[]]$expectedRuntimeDependencies)) {
+            throw "runtime dependency graph is incorrect. Expected: $($expectedRuntimeDependencies -join ', '); actual: $($runtimeDependencies -join ', ')"
+        }
+
+        Write-Host "runtime dependencies: $($runtimeDependencies -join ', ')"
+
         $physicalIcon = [System.IO.File]::ReadAllBytes($requiredIconPath)
         $packedIcon = Get-ZipEntryBytes -Archive $archive -Name 'icon.png'
         $physicalIconHash = Get-Sha256 -Bytes $physicalIcon
@@ -267,12 +313,118 @@ function Assert-PackageArtifact {
     }
 }
 
+function Set-ZipEntryBytes {
+    param(
+        [Parameter(Mandatory = $true)][System.IO.Compression.ZipArchive]$Archive,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][byte[]]$Bytes
+    )
+
+    $existing = $Archive.GetEntry($Name)
+    if ($null -ne $existing) {
+        $existing.Delete()
+    }
+
+    $entry = $Archive.CreateEntry($Name)
+    $stream = $entry.Open()
+    try {
+        $stream.Write($Bytes, 0, $Bytes.Length)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Assert-PackageGateRejectsMutation {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackagePath,
+        [Parameter(Mandatory = $true)][string]$CaseName,
+        [Parameter(Mandatory = $true)][scriptblock]$Mutate
+    )
+
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) "jsondrift-package-gate-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    $copy = Join-Path $root "$CaseName.nupkg"
+    try {
+        Copy-Item -LiteralPath $PackagePath -Destination $copy
+        $archive = [System.IO.Compression.ZipFile]::Open($copy, [System.IO.Compression.ZipArchiveMode]::Update)
+        try {
+            & $Mutate $archive
+        }
+        finally {
+            $archive.Dispose()
+        }
+
+        $rejected = $false
+        try {
+            Assert-PackageArtifact -PackagePath $copy
+        }
+        catch {
+            $rejected = $true
+            Write-Host "package-gate regression rejected: $CaseName"
+            Write-Host "  $($_.Exception.Message)"
+        }
+
+        if (-not $rejected) {
+            throw "package-gate regression was accepted unexpectedly: $CaseName"
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Assert-PackageGateFailClosed {
+    param([Parameter(Mandatory = $true)][string]$PackagePath)
+
+    $corePathPrefix = 'package/services/metadata/core-properties/'
+    $coreNamePattern = '^package/services/metadata/core-properties/(?:[0-9a-f]{32}|nuget)\.psmdcp$'
+
+    Assert-PackageGateRejectsMutation -PackagePath $PackagePath -CaseName 'missing-core-properties' -Mutate {
+        param($archive)
+        $entry = @($archive.Entries | Where-Object { $_.FullName -cmatch $coreNamePattern })
+        if ($entry.Count -ne 1) {
+            throw 'regression setup could not find the allowlisted core-properties entry'
+        }
+        $entry[0].Delete()
+    }
+
+    Assert-PackageGateRejectsMutation -PackagePath $PackagePath -CaseName 'corrupted-core-properties' -Mutate {
+        param($archive)
+        $entry = @($archive.Entries | Where-Object { $_.FullName -cmatch $coreNamePattern })
+        $bytes = Get-ZipEntryBytes -Archive $archive -Name $entry[0].FullName
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $corrupted = $text -replace '<version>[^<]+</version>', '<version>0.1.1</version>'
+        Set-ZipEntryBytes -Archive $archive -Name $entry[0].FullName -Bytes ([System.Text.Encoding]::UTF8.GetBytes($corrupted))
+    }
+
+    Assert-PackageGateRejectsMutation -PackagePath $PackagePath -CaseName 'unexpected-extra-file' -Mutate {
+        param($archive)
+        Set-ZipEntryBytes -Archive $archive -Name ($corePathPrefix + 'unexpected.txt') -Bytes ([System.Text.Encoding]::UTF8.GetBytes('unexpected'))
+    }
+
+    Assert-PackageGateRejectsMutation -PackagePath $PackagePath -CaseName 'other-psmdcp' -Mutate {
+        param($archive)
+        $entry = @($archive.Entries | Where-Object { $_.FullName -cmatch $coreNamePattern })
+        if ($entry.Count -ne 1) {
+            throw 'regression setup could not find the allowlisted core-properties entry'
+        }
+        $bytes = Get-ZipEntryBytes -Archive $archive -Name $entry[0].FullName
+        $entry[0].Delete()
+        Set-ZipEntryBytes -Archive $archive -Name ($corePathPrefix + 'other.psmdcp') -Bytes $bytes
+    }
+}
+
 if (-not (Test-Path -LiteralPath $solution)) {
     throw "solution not found: $solution"
 }
 
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "validation manifest not found: $manifestPath"
+}
+
+Invoke-Check -Id 'telemetry-disabled' -Description 'repository validation telemetry opt-out' -Action {
+    Assert-RepositoryTelemetryDisabled
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -360,8 +512,24 @@ Invoke-Check -Id 'package' -Description 'packable product artifact' -Action {
     }
 
     Assert-PackageArtifact -PackagePath $packages[0].FullName
+    $script:productPackagePath = $packages[0].FullName
     Write-Host "package: $($packages[0].FullName)"
     Write-Host "symbols: $($symbols[0].FullName)"
+}
+
+Invoke-Check -Id 'package-gate-regressions' -Description 'package gate fail-closed regression cases' -Action {
+    Assert-PackageGateFailClosed -PackagePath $script:productPackagePath
+}
+
+Invoke-Check -Id 'package-consumer' -Description 'isolated package-consumer smoke' -Action {
+    if (-not (Test-Path -LiteralPath $consumerSmokeScript -PathType Leaf)) {
+        throw "consumer smoke script not found: $consumerSmokeScript"
+    }
+
+    & pwsh -NoProfile -File $consumerSmokeScript -PackagePath $script:productPackagePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "consumer smoke exited with code $LASTEXITCODE"
+    }
 }
 
 Write-Section 'Manifest'

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace KeelMatrix.JsonDrift;
@@ -15,7 +16,10 @@ public static class JsonDrift
 
         string canonicalJson = Internal.ContractCanonicalizer.Canonicalize(contract);
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(canonicalJson);
-        return JsonContract.FromCanonicalJson(bytes, JsonBaselineLimits.Default);
+        return JsonContract.FromCanonicalJson(
+            bytes,
+            JsonBaselineLimits.Default,
+            usesSourceGeneratedMetadata: contract.OriginatingResolver is JsonSerializerContext);
     }
 
     /// <summary>Extracts a contract for <paramref name="type"/> from the supplied serializer options.</summary>
@@ -71,8 +75,12 @@ public static class JsonDrift
         return Compare(Extract<T>(options), baseline, compatibility);
     }
 
-    internal static JsonDriftReport Compare(JsonContract contract, JsonContract baseline, JsonCompatibility compatibility) =>
-        Internal.ContractComparison.Compare(baseline, contract, compatibility);
+    internal static JsonDriftReport Compare(JsonContract contract, JsonContract baseline, JsonCompatibility compatibility)
+    {
+        JsonDriftReport report = Internal.ContractComparison.Compare(baseline, contract, compatibility);
+        Internal.JsonDriftTelemetryCoordinator.RecordComparison(contract, compatibility, report);
+        return report;
+    }
 
     private static JsonDriftReport Compare(Type type, JsonSerializerOptions options, string baselinePath, JsonCompatibility compatibility) =>
         Compare(Extract(type, options), JsonBaseline.Read(baselinePath), compatibility);

@@ -8,6 +8,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Best-effort activation and weekly heartbeat integration through `KeelMatrix.Telemetry`, with comparison-only
+  activation semantics, an allowlisted aggregate summary, process opt-out handling, and failure isolation.
 - Deterministic `ReaderBackward` contract comparison with complete structured change reports.
 - `JsonDrift.Compare`, `JsonDriftReport.AssertCompatible()`, and fail-closed diagnostics for incompatible or
   unsupported metadata.
@@ -17,6 +19,11 @@ All notable changes to this project are documented in this file. The format is b
   `System.Text.Json` behavior. Measured allowlisted `[JsonPropertyName]` renames are incompatible; arbitrary
   unallowlisted serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
+
+### Fixed
+
+- Package inspection now allowlists only the generated `nuget.psmdcp` or 32-character hexadecimal core-properties
+  entry and rejects unexpected `.psmdcp` names and other artifact mutations.
 
 ## [0.1.0] - 2026-09-18
 

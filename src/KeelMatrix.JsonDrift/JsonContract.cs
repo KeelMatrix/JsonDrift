@@ -30,19 +30,22 @@ public sealed class JsonContract
     private static readonly string[] ConstructorBindingRequired = { "name", "position", "hasDefaultValue" };
 
     private readonly byte[] canonicalBytes;
+    private readonly bool usesSourceGeneratedMetadata;
 
     internal JsonContract(
         int formatVersion,
         string rootTypeName,
         bool isSupported,
         string? unsupportedReason,
-        byte[] canonicalBytes)
+        byte[] canonicalBytes,
+        bool usesSourceGeneratedMetadata = false)
     {
         FormatVersion = formatVersion;
         RootTypeName = rootTypeName;
         IsSupported = isSupported;
         UnsupportedReason = unsupportedReason;
         this.canonicalBytes = canonicalBytes;
+        this.usesSourceGeneratedMetadata = usesSourceGeneratedMetadata;
     }
 
     /// <summary>Gets the canonical baseline format version of this contract.</summary>
@@ -71,7 +74,12 @@ public sealed class JsonContract
     /// </summary>
     public byte[] GetCanonicalUtf8() => canonicalBytes.ToArray();
 
-    internal static JsonContract FromCanonicalJson(byte[] bytes, JsonBaselineLimits limits)
+    internal bool UsesSourceGeneratedMetadata => usesSourceGeneratedMetadata;
+
+    internal static JsonContract FromCanonicalJson(
+        byte[] bytes,
+        JsonBaselineLimits limits,
+        bool usesSourceGeneratedMetadata = false)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         ArgumentNullException.ThrowIfNull(limits);
@@ -164,7 +172,8 @@ public sealed class JsonContract
             rootTypeName,
             overallSupported,
             reason,
-            bytes.ToArray());
+            bytes.ToArray(),
+            usesSourceGeneratedMetadata);
     }
 
     private static bool ValidateOptions(JsonElement options)
