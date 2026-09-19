@@ -103,7 +103,16 @@ Evidence:
 Consequence: adding a target framework later is a measurement task, not a packaging task. The rule matrix has
 to be re-run for that target before the package claims support for it.
 
-## 3. Microsoft JSON-schema exporter
+## 3. Validation and CI evidence posture
+
+The repository has no remote CI configured because private GitHub Actions are not approved. The local
+`scripts/validate.ps1` gate is the source of truth for the release evidence that is available: it restores the
+solution, performs a direct-and-transitive vulnerability audit, verifies formatting and the Release build, runs
+the tests and promoted rule matrix, inspects the package, runs the isolated consumer smoke, and checks
+deterministic output. The product claim is limited to `net8.0` on Windows. Linux, macOS, other runtime/SDK
+combinations, and remote CI evidence remain residual uncertainty because they have not been exercised.
+
+## 4. Microsoft JSON-schema exporter
 
 **Recommendation: keep the JSON-schema exporter out of the first release.**
 

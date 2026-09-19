@@ -3,6 +3,7 @@
   "requiredChecks": [
     "telemetry-disabled",
     "restore",
+    "security-audit",
     "format",
     "build-release",
     "test",

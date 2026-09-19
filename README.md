@@ -24,6 +24,14 @@ KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effec
 The package targets `net8.0` and has been validated on Windows. Linux and macOS are not claimed for this
 release because equivalent platform evidence is not available yet.
 
+## Validation evidence
+
+No remote CI is configured for this private repository because private GitHub Actions are not approved. The
+repository-controlled `scripts/validate.ps1` gate is the source of truth for local release evidence, including
+restore, the Release build, tests, package inspection, consumer smoke, deterministic-output checks, and the
+direct-and-transitive vulnerability audit. The release claim remains limited to `net8.0` on Windows; other
+operating systems, runtimes, and remote CI environments remain unverified.
+
 ## Telemetry and privacy
 
 The extraction and comparison core is offline and does not require network access. After a real comparison

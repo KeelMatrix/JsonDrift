@@ -27,6 +27,7 @@ $expectedPackageId = 'KeelMatrix.JsonDrift'
 $expectedPackageVersion = '0.1.0'
 $requiredIconPath = Join-Path $repoRoot 'icon.png'
 $consumerSmokeScript = Join-Path $PSScriptRoot 'consumer-smoke.ps1'
+$securityAuditTimeoutSeconds = 120
 $documentationLinks = @(
     'https://github.com/KeelMatrix/JsonDrift/blob/main/README.md',
     'https://github.com/KeelMatrix/JsonDrift/blob/main/docs/compatibility-rules.md',
@@ -80,11 +81,176 @@ function Invoke-Dotnet {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
     Write-Host "dotnet $($Arguments -join ' ')"
-    & dotnet @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    $output = @(& dotnet @Arguments 2>&1)
     $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    $auditDiagnostics = @($output | Where-Object {
+            ([string]$_) -match '(?i)\bNU190[0-4]\b'
+        })
+    if ($auditDiagnostics.Count -gt 0) {
+        throw 'dotnet command emitted a NuGet vulnerability-audit diagnostic; advisory data was unavailable or a vulnerable package was reported'
+    }
     if ($exitCode -ne 0) {
         throw "dotnet exited with code $exitCode"
     }
+}
+
+function Invoke-DotnetCapture {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'dotnet'
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $argumentListProperty = $startInfo.PSObject.Properties['ArgumentList']
+    if ($null -ne $argumentListProperty) {
+        foreach ($argument in $Arguments) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+    }
+    else {
+        $startInfo.Arguments = ($Arguments | ForEach-Object {
+                $escaped = $_ -replace '(\\*)"', '$1$1\\"'
+                $escaped = $escaped -replace '(\\+)$', '$1$1'
+                '"' + $escaped + '"'
+            }) -join ' '
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw 'process did not start'
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try {
+                $process.Kill($true)
+            }
+            catch {
+                Write-Host "security audit process cleanup failed: $($_.Exception.Message)"
+            }
+
+            throw "process exceeded the $TimeoutSeconds second timeout"
+        }
+
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            StandardOutput = $stdoutTask.GetAwaiter().GetResult()
+            StandardError = $stderrTask.GetAwaiter().GetResult()
+        }
+    }
+    catch {
+        throw "security audit could not execute: $($_.Exception.Message)"
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
+function Find-JsonVulnerabilities {
+    param(
+        [Parameter(Mandatory = $true)]$Node,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[object]]$Findings
+    )
+
+    if ($null -eq $Node) {
+        return
+    }
+
+    if ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
+        foreach ($child in $Node) {
+            Find-JsonVulnerabilities -Node $child -Findings $Findings
+        }
+        return
+    }
+
+    foreach ($property in $Node.PSObject.Properties) {
+        if ($property.Name -ieq 'vulnerabilities') {
+            foreach ($finding in @($property.Value)) {
+                if ($null -ne $finding) {
+                    $Findings.Add($finding)
+                }
+            }
+        }
+        else {
+            Find-JsonVulnerabilities -Node $property.Value -Findings $Findings
+        }
+    }
+}
+
+function Invoke-SecurityAudit {
+    $arguments = @(
+        'list',
+        $solution,
+        'package',
+        '--vulnerable',
+        '--include-transitive',
+        '--format',
+        'json',
+        '--output-version',
+        '1',
+        '--configfile',
+        $nugetConfig
+    )
+
+    Write-Host "dotnet $($arguments -join ' ')"
+    Write-Host "security audit timeout: $securityAuditTimeoutSeconds seconds"
+    $result = Invoke-DotnetCapture -Arguments $arguments -TimeoutSeconds $securityAuditTimeoutSeconds
+    $stdout = [string]$result.StandardOutput
+    $stderr = [string]$result.StandardError
+
+    if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+        $stdout.TrimEnd("`r", "`n").Split(@("`r`n", "`n", "`r"), [System.StringSplitOptions]::None) | ForEach-Object {
+            Write-Host $_
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+        $stderr.TrimEnd("`r", "`n").Split(@("`r`n", "`n", "`r"), [System.StringSplitOptions]::None) | ForEach-Object {
+            Write-Host $_
+        }
+    }
+
+    $diagnostics = "$stdout`n$stderr"
+    if ($diagnostics -match '(?im)\bNU190[0-4]\b|\bNU130[12]\b|unable to load the service index|failed to (?:load|retrieve) (?:the )?(?:vulnerability|advisory)|(?:vulnerability|advisory) (?:service|data).*(?:unavailable|unreachable|failed|error)') {
+        throw 'security audit failed closed: advisory data was unavailable or an audit diagnostic was reported'
+    }
+
+    if ($result.ExitCode -ne 0) {
+        throw "security audit failed closed: command exited with code $($result.ExitCode); audit result is unperformed"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($stdout)) {
+        throw 'security audit failed closed: command produced no machine-readable result'
+    }
+
+    try {
+        $audit = $stdout | ConvertFrom-Json
+    }
+    catch {
+        throw "security audit failed closed: command did not produce valid JSON: $($_.Exception.Message)"
+    }
+
+    if ($null -eq $audit -or $audit.version -ne 1 -or $null -eq $audit.projects -or @($audit.projects).Count -eq 0) {
+        throw 'security audit failed closed: JSON result did not contain the expected version-1 project set'
+    }
+
+    $findings = [System.Collections.Generic.List[object]]::new()
+    Find-JsonVulnerabilities -Node $audit -Findings $findings
+    if ($findings.Count -gt 0) {
+        throw "security audit failed: $($findings.Count) vulnerable package advisory result(s) reported"
+    }
+
+    Write-Host 'security audit executed: true'
+    Write-Host "security audit result: clean; no vulnerable direct or transitive packages reported across $(@($audit.projects).Count) project(s)"
 }
 
 function Get-Sha256 {
@@ -440,6 +606,10 @@ if ($SkipNuGetAudit) {
 
 Invoke-Check -Id 'restore' -Description 'restore' -Action {
     Invoke-Dotnet -Arguments $restoreArguments
+}
+
+Invoke-Check -Id 'security-audit' -Description 'direct and transitive NuGet vulnerability audit' -Action {
+    Invoke-SecurityAudit
 }
 
 Invoke-Check -Id 'format' -Description 'format and analyzer verification' -Action {
