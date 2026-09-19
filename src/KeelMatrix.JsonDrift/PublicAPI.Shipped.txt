@@ -23,3 +23,24 @@ static KeelMatrix.JsonDrift.JsonBaseline.Update(System.Text.Json.Serialization.M
 static KeelMatrix.JsonDrift.JsonDrift.Extract(System.Text.Json.Serialization.Metadata.JsonTypeInfo! contract) -> KeelMatrix.JsonDrift.JsonContract!
 static KeelMatrix.JsonDrift.JsonDrift.Extract(System.Type! type, System.Text.Json.JsonSerializerOptions! options) -> KeelMatrix.JsonDrift.JsonContract!
 static KeelMatrix.JsonDrift.JsonDrift.Extract<T>(System.Text.Json.JsonSerializerOptions! options) -> KeelMatrix.JsonDrift.JsonContract!
+KeelMatrix.JsonDrift.JsonDriftClassification
+KeelMatrix.JsonDrift.JsonDriftClassification.Compatible = 0 -> KeelMatrix.JsonDrift.JsonDriftClassification
+KeelMatrix.JsonDrift.JsonDriftClassification.Incompatible = 1 -> KeelMatrix.JsonDrift.JsonDriftClassification
+KeelMatrix.JsonDrift.JsonDriftClassification.Unsupported = 2 -> KeelMatrix.JsonDrift.JsonDriftClassification
+KeelMatrix.JsonDrift.JsonDriftChange
+KeelMatrix.JsonDrift.JsonDriftChange.Classification.get -> KeelMatrix.JsonDrift.JsonDriftClassification
+KeelMatrix.JsonDrift.JsonDriftChange.Path.get -> string!
+KeelMatrix.JsonDrift.JsonDriftChange.Reason.get -> string!
+KeelMatrix.JsonDrift.JsonDriftChange.RuleId.get -> string!
+override KeelMatrix.JsonDrift.JsonDriftChange.ToString() -> string!
+KeelMatrix.JsonDrift.JsonDriftCompatibilityException
+KeelMatrix.JsonDrift.JsonDriftCompatibilityException.Report.get -> KeelMatrix.JsonDrift.JsonDriftReport!
+KeelMatrix.JsonDrift.JsonDriftReport
+KeelMatrix.JsonDrift.JsonDriftReport.AssertCompatible() -> void
+KeelMatrix.JsonDrift.JsonDriftReport.Changes.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.JsonDrift.JsonDriftChange!>!
+KeelMatrix.JsonDrift.JsonDriftReport.IsCompatible.get -> bool
+KeelMatrix.JsonDrift.JsonDriftReport.Outcome.get -> KeelMatrix.JsonDrift.JsonDriftClassification
+static KeelMatrix.JsonDrift.JsonDrift.Compare(System.Text.Json.Serialization.Metadata.JsonTypeInfo! contract, string! baselinePath, KeelMatrix.JsonDrift.JsonCompatibility compatibility) -> KeelMatrix.JsonDrift.JsonDriftReport!
+static KeelMatrix.JsonDrift.JsonDrift.Compare(System.Text.Json.Serialization.Metadata.JsonTypeInfo! contract, KeelMatrix.JsonDrift.JsonContract! baseline, KeelMatrix.JsonDrift.JsonCompatibility compatibility) -> KeelMatrix.JsonDrift.JsonDriftReport!
+static KeelMatrix.JsonDrift.JsonDrift.Compare<T>(System.Text.Json.JsonSerializerOptions! options, string! baselinePath, KeelMatrix.JsonDrift.JsonCompatibility compatibility) -> KeelMatrix.JsonDrift.JsonDriftReport!
+static KeelMatrix.JsonDrift.JsonDrift.Compare<T>(System.Text.Json.JsonSerializerOptions! options, KeelMatrix.JsonDrift.JsonContract! baseline, KeelMatrix.JsonDrift.JsonCompatibility compatibility) -> KeelMatrix.JsonDrift.JsonDriftReport!
