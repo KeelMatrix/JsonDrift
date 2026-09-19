@@ -12,7 +12,12 @@ if ($package.Extension -ne '.nupkg') {
 
 $root = Join-Path ([System.IO.Path]::GetTempPath()) "jsondrift-consumer-$([Guid]::NewGuid().ToString('N'))"
 $project = Join-Path $root 'Consumer'
-$packages = Join-Path $root 'packages'
+$packages = if ([string]::IsNullOrWhiteSpace($env:NUGET_PACKAGES)) {
+    Join-Path $root 'packages'
+}
+else {
+    $env:NUGET_PACKAGES
+}
 $feed = Join-Path $root 'feed'
 New-Item -ItemType Directory -Path $project, $packages, $feed -Force | Out-Null
 Copy-Item -LiteralPath $package.FullName -Destination $feed
