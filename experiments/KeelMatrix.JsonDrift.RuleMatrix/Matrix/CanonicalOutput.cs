@@ -16,7 +16,7 @@ internal static class CanonicalOutput
     public static string RenderDocument()
     {
         JsonTypeInfo contract = JsonContractOptions.Reflection().GetTypeInfo(typeof(OrderEnvelope));
-        return ContractCanonicalizer.Canonicalize(contract);
+        return KeelMatrix.JsonDrift.JsonDrift.Extract(contract).CanonicalJson;
     }
 
     /// <summary>

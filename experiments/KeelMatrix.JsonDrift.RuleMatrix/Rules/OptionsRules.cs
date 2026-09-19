@@ -220,11 +220,7 @@ internal static class OptionsRules
             bool canonicalSupported = ContractDocument.RootSupported(document);
             bool overallSupported = ContractDocument.OverallSupported(document);
 
-            var report = new ContractChangeReport();
-            report.AddCompatible("R01.property-add.optional", "an optional member was added and earlier members are preserved");
-            report.AddUnsupported(
-                checkId,
-                reason is null ? "the contract was reported as supported" : MetadataDiscoverySources.Reason(reason));
+            JsonDriftReport report = JsonDrift.Compare(contract, JsonDrift.Extract(contract), JsonCompatibility.ReaderBackward);
 
             bool assertionFailed = false;
 
@@ -232,7 +228,7 @@ internal static class OptionsRules
             {
                 report.AssertCompatible();
             }
-            catch (ContractCheckFailedException)
+            catch (JsonDriftCompatibilityException)
             {
                 assertionFailed = true;
             }
@@ -245,7 +241,7 @@ internal static class OptionsRules
                 !overallSupported &&
                 ruleReported &&
                 valueRecorded &&
-                report.Status == "Unsupported" &&
+                report.Outcome == JsonDriftClassification.Unsupported &&
                 assertionFailed;
 
             passed &= changePassed;
@@ -254,7 +250,7 @@ internal static class OptionsRules
                 $"{SerializerOptionFacts.Id(change.Kind)}={recordedValue}; " +
                 $"unlisted={valueIsUnlisted}; baselineSupported={baselineSupported}; canonical={(canonicalSupported ? "Supported" : "Unsupported")}; " +
                 $"overall={(overallSupported ? "Supported" : "Unsupported")}; rule={(ContractDocument.RootRule(document) ?? "<missing>")}; " +
-                $"documentRecordsValue={valueRecorded}; report={report.Status}; assertionFailed={assertionFailed}; " +
+                $"documentRecordsValue={valueRecorded}; report={report.Outcome}; assertionFailed={assertionFailed}; " +
                 $"reason: {(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}");
         }
 

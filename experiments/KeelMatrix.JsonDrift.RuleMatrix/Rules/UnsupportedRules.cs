@@ -115,9 +115,7 @@ internal static class UnsupportedRules
             $"roundTrip: {Check.Describe(nestedRoundTrip)} | classification: {(nestedReason is null ? "Supported" : $"Unsupported ({nestedReason})")}",
             nestedRoundTrip.Lossless && nestedRoundTrip.Fault is null && nestedReason is not null));
 
-        var report = new ContractChangeReport();
-        report.AddCompatible("R01.property-add.optional", "an optional member was added and earlier members are preserved");
-        report.AddUnsupported("R14.converter.opaque-property", reason ?? "unrecognized converter");
+        JsonDriftReport report = JsonDrift.Compare(later, JsonDrift.Extract(later), JsonCompatibility.ReaderBackward);
 
         bool assertionFailed = false;
         string assertionMessage = "the assertion did not fail";
@@ -126,7 +124,7 @@ internal static class UnsupportedRules
         {
             report.AssertCompatible();
         }
-        catch (ContractCheckFailedException exception)
+        catch (JsonDriftCompatibilityException exception)
         {
             assertionFailed = true;
             assertionMessage = exception.Message;
@@ -137,9 +135,9 @@ internal static class UnsupportedRules
             "Unsupported handling",
             "a run contains one compatible change and one contract that cannot be classified",
             "report=Unsupported and the assertion fails",
-            $"report={report.Status}",
-            $"status={report.Status}; assert={Check.Truncate(assertionMessage, 200)}",
-            report.Status == "Unsupported" && assertionFailed));
+            $"report={report.Outcome}",
+            $"status={report.Outcome}; assert={Check.Truncate(assertionMessage, 200)}",
+            report.Outcome == JsonDriftClassification.Unsupported && assertionFailed));
 
         return results;
     }

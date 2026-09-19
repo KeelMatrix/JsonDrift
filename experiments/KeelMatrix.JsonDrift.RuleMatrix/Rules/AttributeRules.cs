@@ -80,15 +80,14 @@ internal static class AttributeRules
         bool documentDiffers = !string.Equals(baselineDocument, changedDocument, StringComparison.Ordinal);
         bool earlierRejected = !earlierRead.Parsed && earlierRead.Fault is null;
 
-        var report = new ContractChangeReport();
-        report.AddUnsupported(id, reason is null ? "the contract was reported as supported" : MetadataDiscoverySources.Reason(reason));
+        JsonDriftReport report = JsonDrift.Compare(changed, JsonDrift.Extract(changed), JsonCompatibility.ReaderBackward);
         bool assertionFailed = false;
 
         try
         {
             report.AssertCompatible();
         }
-        catch (ContractCheckFailedException)
+        catch (JsonDriftCompatibilityException)
         {
             assertionFailed = true;
         }
@@ -172,7 +171,7 @@ internal static class AttributeRules
         bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
         bool withoutSupported = ContractDocument.OverallSupported(withoutDocument);
         bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
-        bool assertionFailed = AssertUnsupported(id, reason);
+        bool assertionFailed = AssertUnsupported(id, withAttribute, reason);
         bool passed = recorded && absentWithoutAttribute && denied && wireUnchanged && documentDiffers &&
             withoutSupported && withUnsupported && assertionFailed;
 
@@ -214,7 +213,7 @@ internal static class AttributeRules
         bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
         bool withoutSupported = ContractDocument.OverallSupported(withoutDocument);
         bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
-        bool assertionFailed = AssertUnsupported(id, reason);
+        bool assertionFailed = AssertUnsupported(id, withAttribute, reason);
         bool passed = recorded && denied && bindingDiffers && documentDiffers && withoutSupported &&
             withUnsupported && assertionFailed && withoutRead.Fault is null && withRead.Fault is null;
 
@@ -250,7 +249,7 @@ internal static class AttributeRules
         bool baselineSupported = ContractDocument.OverallSupported(baselineDocument);
         bool changedUnsupported = !ContractDocument.OverallSupported(changedDocument);
         bool documentDiffers = !string.Equals(baselineDocument, changedDocument, StringComparison.Ordinal);
-        bool assertionFailed = AssertUnsupported(id, reason);
+        bool assertionFailed = AssertUnsupported(id, changed, reason);
         bool passed = recorded && denied && baselineSupported && changedUnsupported && documentDiffers && assertionFailed;
 
         return Bind(
@@ -292,7 +291,7 @@ internal static class AttributeRules
         bool baselineSupported = ContractDocument.OverallSupported(baselineDocument);
         bool changedUnsupported = !ContractDocument.OverallSupported(changedDocument);
         bool documentDiffers = !string.Equals(baselineDocument, changedDocument, StringComparison.Ordinal);
-        bool assertionFailed = AssertUnsupported(id, reason);
+        bool assertionFailed = AssertUnsupported(id, changed, reason);
         bool passed = recorded && denied && wireDiffers && baselineSupported && changedUnsupported &&
             documentDiffers && assertionFailed;
 
@@ -374,17 +373,16 @@ internal static class AttributeRules
             id);
     }
 
-    private static bool AssertUnsupported(string id, string? reason)
+    private static bool AssertUnsupported(string id, JsonTypeInfo contract, string? reason)
     {
-        var report = new ContractChangeReport();
-        report.AddUnsupported(id, reason is null ? "the contract was reported as supported" : MetadataDiscoverySources.Reason(reason));
+        JsonDriftReport report = JsonDrift.Compare(contract, JsonDrift.Extract(contract), JsonCompatibility.ReaderBackward);
 
         try
         {
             report.AssertCompatible();
             return false;
         }
-        catch (ContractCheckFailedException)
+        catch (JsonDriftCompatibilityException)
         {
             return true;
         }

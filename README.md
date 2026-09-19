@@ -1,10 +1,10 @@
 # KeelMatrix.JsonDrift
 
 KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effective
-`System.Text.Json` contract and stores it as an explicit baseline. Phase 1-A1 ships the
-foundation library only; comparison, reporting, and assertion APIs are deferred to slice A2.
+`System.Text.Json` contract, stores it as an explicit baseline, and compares later metadata with the
+`ReaderBackward` policy. Reports contain every classified change and fail closed for unsupported metadata.
 
-## A1 scope
+## Scope
 
 - Package: `KeelMatrix.JsonDrift`, targeting `net8.0`.
 - Compatibility policy: `JsonCompatibility.ReaderBackward` only. It describes documented
@@ -15,8 +15,11 @@ foundation library only; comparison, reporting, and assertion APIs are deferred 
   type information. Application converters are not executed to reverse-engineer behavior.
 - Baselines use canonical JSON format version `1`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
+- `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
+  `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
+  incompatible or unsupported result.
 
-## Install and first baseline
+## Install and compare
 
 Install the package into a `net8.0` test project:
 
@@ -24,25 +27,31 @@ Install the package into a `net8.0` test project:
 dotnet add package KeelMatrix.JsonDrift --version 0.1.0
 ```
 
-Use the application's actual source-generated metadata (or the reflection/options overload) to create and
-read an explicit baseline:
+Use the application's actual source-generated metadata (or the reflection/options overload) to create an
+explicit baseline and compare later metadata:
 
 ```csharp
-JsonTypeInfo<OrderEvent> contract = MyJsonContext.Default.OrderEvent;
+JsonTypeInfo<OrderEventV1> baselineContract = MyJsonContext.Default.OrderEventV1;
 const string path = "contracts/order-event.json";
 
-JsonContract extracted = JsonDrift.Extract(contract);
-JsonBaseline.Create(contract, path, overwrite: false);
-JsonContract baseline = JsonBaseline.Read(path);
-JsonCompatibility policy = JsonCompatibility.ReaderBackward;
+JsonBaseline.Create(baselineContract, path, overwrite: false);
 
-// After an intentional serializer change, replace the committed baseline explicitly:
-JsonBaseline.Update(contract, path, overwrite: true);
+// An optional additive member is compatible for ReaderBackward:
+JsonTypeInfo<OrderEventV2WithOptionalNote> additiveContract = MyJsonContext.Default.OrderEventV2WithOptionalNote;
+JsonDriftReport additive = JsonDrift.Compare(
+    additiveContract, path, JsonCompatibility.ReaderBackward);
+additive.AssertCompatible();
+
+// A rename or a newly required member is reported as incompatible:
+JsonTypeInfo<OrderEventV2RenamedOrRequired> breakingContract = MyJsonContext.Default.OrderEventV2RenamedOrRequired;
+JsonDriftReport breakingChange = JsonDrift.Compare(
+    breakingContract, path, JsonCompatibility.ReaderBackward);
+// breakingChange.Changes contains the path, rule identifier, classification, and reason.
+// breakingChange.AssertCompatible() throws JsonDriftCompatibilityException.
 ```
 
-The A1 package extracts, creates, updates, and reads canonical contracts and defines the
-`JsonCompatibility.ReaderBackward` policy. It does not yet compare two contracts, produce drift reports, or
-provide assertion helpers; those capabilities are outside this shipped foundation slice.
+After an intentional contract change, replace the committed baseline explicitly with
+`JsonBaseline.Update(contract, path, overwrite: true)`. Normal comparisons never rewrite the baseline.
 
 The measured classification rules and their evidence remain in
 [docs/compatibility-rules.md](docs/compatibility-rules.md). The initial-release decisions are in
@@ -57,8 +66,8 @@ dotnet test KeelMatrix.JsonDrift.sln -c Release --no-build
 pwsh scripts/validate.ps1
 ```
 
-The local validation script also runs the promoted Phase 0 matrix, checks canonical bytes in two
-independent processes, and verifies its required-check manifest fail-closed.
+The local validation script also runs the promoted rule matrix, checks canonical bytes in two independent
+processes, and verifies its required-check manifest fail-closed.
 
 The package is local/offline at runtime. It has no CLI, hosted client, registry integration, Kafka
 integration, or JSON-Schema exporter in this slice.

@@ -34,4 +34,46 @@ public static class JsonDrift
     /// <param name="options">The actual serializer options used by the application.</param>
     /// <returns>The deterministic contract model.</returns>
     public static JsonContract Extract<T>(JsonSerializerOptions options) => Extract(typeof(T), options);
+
+    /// <summary>Compares the current metadata with a canonical baseline at <paramref name="baselinePath"/>.</summary>
+    /// <param name="contract">The later contract metadata used by the application.</param>
+    /// <param name="baselinePath">The local path of the earlier accepted baseline.</param>
+    /// <param name="compatibility">The supported compatibility policy.</param>
+    /// <returns>A complete structured comparison report.</returns>
+    public static JsonDriftReport Compare(JsonTypeInfo contract, string baselinePath, JsonCompatibility compatibility)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentException.ThrowIfNullOrWhiteSpace(baselinePath);
+        return Compare(Extract(contract), JsonBaseline.Read(baselinePath), compatibility);
+    }
+
+    /// <summary>Compares current metadata with an already-extracted earlier contract.</summary>
+    /// <param name="contract">The later contract metadata used by the application.</param>
+    /// <param name="baseline">The earlier accepted contract.</param>
+    /// <param name="compatibility">The supported compatibility policy.</param>
+    /// <returns>A complete structured comparison report.</returns>
+    public static JsonDriftReport Compare(JsonTypeInfo contract, JsonContract baseline, JsonCompatibility compatibility)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(baseline);
+        return Compare(Extract(contract), baseline, compatibility);
+    }
+
+    /// <summary>Compares current options metadata with a baseline at <paramref name="baselinePath"/>.</summary>
+    public static JsonDriftReport Compare<T>(JsonSerializerOptions options, string baselinePath, JsonCompatibility compatibility) =>
+        Compare(typeof(T), options, baselinePath, compatibility);
+
+    /// <summary>Compares current options metadata with an already-extracted baseline.</summary>
+    public static JsonDriftReport Compare<T>(JsonSerializerOptions options, JsonContract baseline, JsonCompatibility compatibility)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(baseline);
+        return Compare(Extract<T>(options), baseline, compatibility);
+    }
+
+    internal static JsonDriftReport Compare(JsonContract contract, JsonContract baseline, JsonCompatibility compatibility) =>
+        Internal.ContractComparison.Compare(baseline, contract, compatibility);
+
+    private static JsonDriftReport Compare(Type type, JsonSerializerOptions options, string baselinePath, JsonCompatibility compatibility) =>
+        Compare(Extract(type, options), JsonBaseline.Read(baselinePath), compatibility);
 }

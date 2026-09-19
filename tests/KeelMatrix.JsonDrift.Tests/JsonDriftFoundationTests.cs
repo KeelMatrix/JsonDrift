@@ -9,6 +9,8 @@ namespace KeelMatrix.JsonDrift.Tests;
 
 public sealed partial class JsonDriftFoundationTests
 {
+    private static readonly string[] CompleteChangePaths = { "root.Note", "root.Required" };
+
     [Fact]
     public void ExtractsFromReflectionOptionsAndRecordsSupportedContract()
     {
@@ -86,6 +88,101 @@ public sealed partial class JsonDriftFoundationTests
         Assert.Equal("Baseline update requires overwrite: true.", updateError.Message);
         Assert.Throws<IOException>(() => JsonBaseline.Create(typeInfo, path, overwrite: false));
         JsonBaseline.Update(typeInfo, path, overwrite: true);
+    }
+
+    [Fact]
+    public void CompareReportsOptionalAdditiveChangeAsCompatible()
+    {
+        JsonContract baseline = JsonDrift.Extract<AdditiveV1>(ReflectionOptions());
+        JsonTypeInfo current = ReflectionOptions().GetTypeInfo(typeof(AdditiveV2));
+
+        JsonDriftReport report = JsonDrift.Compare(current, baseline, JsonCompatibility.ReaderBackward);
+
+        JsonDriftChange change = Assert.Single(report.Changes);
+        Assert.True(report.IsCompatible);
+        Assert.Equal(JsonDriftClassification.Compatible, change.Classification);
+        Assert.Equal("R01.property-add.optional", change.RuleId);
+        Assert.Equal("root.Note", change.Path);
+        report.AssertCompatible();
+    }
+
+    [Fact]
+    public void CompareReportsRenameAndRequirednessWithStructuredReasons()
+    {
+        JsonContract renameBaseline = JsonDrift.Extract<RenamedV1>(ReflectionOptions());
+        JsonTypeInfo renamedCurrent = ReflectionOptions().GetTypeInfo(typeof(RenamedV2));
+        JsonDriftReport renameReport = JsonDrift.Compare(renamedCurrent, renameBaseline, JsonCompatibility.ReaderBackward);
+
+        JsonContract requiredBaseline = JsonDrift.Extract<RequiredV1>(ReflectionOptions());
+        JsonTypeInfo requiredCurrent = ReflectionOptions().GetTypeInfo(typeof(RequiredV2));
+        JsonDriftReport requiredReport = JsonDrift.Compare(requiredCurrent, requiredBaseline, JsonCompatibility.ReaderBackward);
+
+        Assert.Contains(renameReport.Changes, change =>
+            change.RuleId == "R03.serialized-name.json-property-name" &&
+            change.Classification == JsonDriftClassification.Incompatible &&
+            change.Reason.Contains("serialized member name", StringComparison.Ordinal));
+        Assert.Contains(requiredReport.Changes, change =>
+            change.RuleId == "R04.requiredness.optional-to-required" &&
+            change.Classification == JsonDriftClassification.Incompatible &&
+            change.Reason.Contains("requires", StringComparison.Ordinal));
+        JsonDriftCompatibilityException exception = Assert.Throws<JsonDriftCompatibilityException>(() => renameReport.AssertCompatible());
+        Assert.Same(renameReport, exception.Report);
+        Assert.Contains("root.old_name", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareKeepsCompleteOrderedChangeSetAndIsDeterministic()
+    {
+        JsonContract baseline = JsonDrift.Extract<AdditiveV1>(ReflectionOptions());
+        JsonTypeInfo current = ReflectionOptions().GetTypeInfo(typeof(AdditiveAndRequiredV2));
+
+        JsonDriftReport first = JsonDrift.Compare(current, baseline, JsonCompatibility.ReaderBackward);
+        JsonDriftReport second = JsonDrift.Compare(current, baseline, JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Incompatible, first.Outcome);
+        Assert.Equal(CompleteChangePaths, first.Changes.Select(static change => change.Path));
+        Assert.Equal(
+            first.Changes.Select(static change => change.ToString()),
+            second.Changes.Select(static change => change.ToString()));
+    }
+
+    [Fact]
+    public void CompareFailsClosedForUnsupportedConverterWithoutExecutingIt()
+    {
+        JsonSerializerOptions options = ReflectionOptions();
+        SecretConverter converter = new();
+        options.Converters.Add(converter);
+        JsonTypeInfo current = options.GetTypeInfo(typeof(SecretEnvelope));
+        JsonContract baseline = JsonDrift.Extract(current);
+
+        JsonDriftReport report = JsonDrift.Compare(current, baseline, JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Unsupported, report.Outcome);
+        Assert.NotEmpty(report.Changes);
+        Assert.Throws<JsonDriftCompatibilityException>(() => report.AssertCompatible());
+        Assert.Equal(0, converter.InvocationCount);
+    }
+
+    [Fact]
+    public void ComparePathUsesBoundedBaselineValidationAndRecursiveGraphsTerminate()
+    {
+        using TemporaryDirectory directory = new();
+        string path = Path.Combine(directory.Path, "baseline.json");
+        JsonBaseline.Create<SimpleEnvelope>(ReflectionOptions(), path, overwrite: false);
+
+        JsonDriftReport report = JsonDrift.Compare<SimpleEnvelope>(ReflectionOptions(), path, JsonCompatibility.ReaderBackward);
+        Assert.True(report.IsCompatible);
+        Assert.Empty(report.Changes);
+
+        File.WriteAllText(path, "{\"formatVersion\":2}\n", new UTF8Encoding(false));
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() =>
+            JsonDrift.Compare<SimpleEnvelope>(ReflectionOptions(), path, JsonCompatibility.ReaderBackward));
+        Assert.Contains("newer than supported", error.Message, StringComparison.Ordinal);
+
+        JsonTypeInfo recursive = ReflectionOptions().GetTypeInfo(typeof(RecursiveNode));
+        JsonDriftReport recursiveReport = JsonDrift.Compare(recursive, JsonDrift.Extract(recursive), JsonCompatibility.ReaderBackward);
+        Assert.True(recursiveReport.IsCompatible);
+        Assert.Empty(recursiveReport.Changes);
     }
 
     [Fact]
@@ -373,6 +470,51 @@ public sealed partial class JsonDriftFoundationTests
         public int Id { get; set; }
 
         public string? Note { get; set; }
+    }
+
+    private sealed class AdditiveV1
+    {
+        public int Id { get; set; }
+    }
+
+    private sealed class AdditiveV2
+    {
+        public int Id { get; set; }
+
+        public string? Note { get; set; }
+    }
+
+    private sealed class AdditiveAndRequiredV2
+    {
+        public int Id { get; set; }
+
+        public string? Note { get; set; }
+
+        [JsonRequired]
+        public string Required { get; set; } = string.Empty;
+    }
+
+    private sealed class RenamedV1
+    {
+        [JsonPropertyName("old_name")]
+        public string? Name { get; set; }
+    }
+
+    private sealed class RenamedV2
+    {
+        [JsonPropertyName("new_name")]
+        public string? Name { get; set; }
+    }
+
+    private sealed class RequiredV1
+    {
+        public string? Tracking { get; set; }
+    }
+
+    private sealed class RequiredV2
+    {
+        [JsonRequired]
+        public string? Tracking { get; set; }
     }
 
     private sealed class RecursiveNode

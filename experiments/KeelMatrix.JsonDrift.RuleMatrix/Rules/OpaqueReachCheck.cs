@@ -35,9 +35,7 @@ internal static class OpaqueReachCheck
         bool rejectedEvidenceRecorded =
             rejectedEvidence.Length > 0 && document.Contains(rejectedEvidence, StringComparison.Ordinal);
 
-        var report = new ContractChangeReport();
-        report.AddCompatible("R01.property-add.optional", "an optional member was added and earlier members are preserved");
-        report.AddUnsupported(id, reason is null ? "the contract was reported as supported" : MetadataDiscoverySources.Reason(reason));
+        JsonDriftReport report = JsonDrift.Compare(contract, JsonDrift.Extract(contract), JsonCompatibility.ReaderBackward);
 
         bool assertionFailed = false;
 
@@ -45,7 +43,7 @@ internal static class OpaqueReachCheck
         {
             report.AssertCompatible();
         }
-        catch (ContractCheckFailedException)
+        catch (JsonDriftCompatibilityException)
         {
             assertionFailed = true;
         }
@@ -63,13 +61,13 @@ internal static class OpaqueReachCheck
             change,
             Expected,
             $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(canonicalSupported ? "Supported" : "Unsupported")}, " +
-            $"overall={(canonicalOverallSupported ? "Supported" : "Unsupported")}, report={report.Status}",
+            $"overall={(canonicalOverallSupported ? "Supported" : "Unsupported")}, report={report.Outcome}",
             $"source={source}; path={pathId}; reason: {(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; " +
             $"{evidence}; {rejected}; assertion failed: {assertionFailed}",
             reason is not null &&
             !canonicalSupported &&
             !canonicalOverallSupported &&
-            report.Status == "Unsupported" &&
+            report.Outcome == JsonDriftClassification.Unsupported &&
             assertionFailed &&
             evidenceRecorded &&
             !rejectedEvidenceRecorded,
