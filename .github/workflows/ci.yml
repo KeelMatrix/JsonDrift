@@ -18,8 +18,16 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: windows-latest
+    name: CI / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
     env:
       CI: true
       KEELMATRIX_NO_TELEMETRY: 1
