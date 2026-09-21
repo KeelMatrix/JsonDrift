@@ -740,12 +740,13 @@ function Assert-SymbolGateRejectsMutation {
         [Parameter(Mandatory = $true)][string]$PackagePath,
         [Parameter(Mandatory = $true)][string]$SymbolsPackagePath,
         [Parameter(Mandatory = $true)][string]$CaseName,
+        [Parameter(Mandatory = $true)][string]$ExpectedFailurePattern,
         [Parameter(Mandatory = $true)][scriptblock]$Mutate
     )
 
     $root = Join-Path ([System.IO.Path]::GetTempPath()) "jsondrift-symbol-gate-$([Guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $root -Force | Out-Null
-    $copy = Join-Path $root "$CaseName.snupkg"
+    $copy = Join-Path $root "$expectedPackageId.$expectedPackageVersion.snupkg"
     try {
         Copy-Item -LiteralPath $SymbolsPackagePath -Destination $copy
         & $Mutate $copy
@@ -757,6 +758,9 @@ function Assert-SymbolGateRejectsMutation {
             $rejected = $true
             Write-Host "symbol-gate regression rejected: $CaseName"
             Write-Host "  $($_.Exception.Message)"
+            if ($_.Exception.Message -notmatch $ExpectedFailurePattern) {
+                throw "symbol-gate regression reported the wrong failure for $CaseName. Expected content diagnostic pattern '$ExpectedFailurePattern'; actual: $($_.Exception.Message)"
+            }
         }
         if (-not $rejected) {
             throw "symbol-gate regression was accepted unexpectedly: $CaseName"
@@ -786,12 +790,12 @@ function Assert-SymbolGateFailClosed {
         Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    Assert-SymbolGateRejectsMutation -PackagePath $PackagePath -SymbolsPackagePath $SymbolsPackagePath -CaseName 'corrupt-symbol-package' -Mutate {
+    Assert-SymbolGateRejectsMutation -PackagePath $PackagePath -SymbolsPackagePath $SymbolsPackagePath -CaseName 'corrupt-symbol-package' -ExpectedFailurePattern 'End of Central Directory record could not be found|Central Directory corrupt' -Mutate {
         param($path)
         [IO.File]::WriteAllBytes($path, [byte[]](0x6e, 0x6f, 0x74, 0x2d, 0x7a, 0x69, 0x70))
     }
 
-    Assert-SymbolGateRejectsMutation -PackagePath $PackagePath -SymbolsPackagePath $SymbolsPackagePath -CaseName 'unexpected-symbol-content' -Mutate {
+    Assert-SymbolGateRejectsMutation -PackagePath $PackagePath -SymbolsPackagePath $SymbolsPackagePath -CaseName 'unexpected-symbol-content' -ExpectedFailurePattern 'symbol archive entries differ from the explicit intended set' -Mutate {
         param($path)
         $archive = [System.IO.Compression.ZipFile]::Open($path, [System.IO.Compression.ZipArchiveMode]::Update)
         try {
