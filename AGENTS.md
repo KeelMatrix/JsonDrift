@@ -9,9 +9,10 @@
   (`Rules/`); its promoted mechanism comes from the product project reference.
 - `docs/compatibility-rules.md` is the normative rule table: rule identifier, change, classification under
   each policy, reason, and the check that proves it.
-- `docs/initial-release-scope.md` records the recommended first-release scope and its evidence.
+- `docs/initial-release-scope.md` records the initial-release scope and its evidence.
 - `scripts/validate.ps1` is the repository-controlled local CI-equivalent validation entry point.
 - `scripts/validation-manifest.json` is the fail-closed required-check manifest.
+- `scripts/validate-release-version.ps1` is the release-only version, tag, and finalized changelog contract.
 
 
 ## Commands
@@ -23,6 +24,9 @@ dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no
 dotnet run --project experiments/KeelMatrix.JsonDrift.RuleMatrix -c Release --no-build -- --canonical artifacts/canonical
 dotnet test KeelMatrix.JsonDrift.sln -c Release --no-build
 pwsh scripts/validate.ps1
+$commit = (git rev-parse HEAD).Trim()
+pwsh scripts/test-changelog-contract.ps1
+pwsh scripts/validate-release-version.ps1 -ExpectedVersion 0.1.0 -ExpectedCommit $commit
 ```
 
 ## Invariants
@@ -43,7 +47,7 @@ pwsh scripts/validate.ps1
 - Canonical contract documents are sorted by member name, LF-terminated, UTF-8 without a byte order mark, and
   free of timestamps, host paths, and process-specific values.
 - The experiment project is not packable and must stay that way.
-- The product is `net8.0` only and exposes `ReaderBackward` only in this release slice.
+- The product is `net8.0` only and exposes `ReaderBackward` only in this release.
 - Reads never create, update, or rewrite baselines; baseline mutation requires an explicit create/update call.
 
 ## Validation

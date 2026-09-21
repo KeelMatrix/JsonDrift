@@ -24,39 +24,33 @@ KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effec
 
 ## Supported platform
 
-The package targets `net8.0` and has been validated on Windows. Linux and macOS are not claimed for this
-release because equivalent platform evidence is not available yet.
+The package targets `net8.0`. The repository validation gate runs on Windows, Linux, and macOS through the
+committed GitHub Actions matrix for the pinned SDK/runtime combination. Other runtime and SDK combinations are
+outside the validated support claim.
 
 ## Validation evidence
 
-No remote CI is configured for this private repository because private GitHub Actions are not approved. The
-repository-controlled `scripts/validate.ps1` gate is the source of truth for local release evidence, including
-restore, the Release build, tests, package inspection, consumer smoke, deterministic-output checks, and the
-direct-and-transitive vulnerability audit. The release claim remains limited to `net8.0` on Windows; other
-operating systems, runtimes, and remote CI environments remain unverified.
+The repository-controlled `scripts/validate.ps1` gate is the source of truth for restore, Release build, tests,
+package and symbol inspection, isolated consumer smoke, deterministic-output checks, release-contract
+regressions, and the direct-and-transitive vulnerability audit. The same gate runs in committed CI on
+`windows-latest`, `ubuntu-latest`, and `macos-latest`.
+
+## Release process
+
+Pushing a `vMAJOR.MINOR.PATCH` tag runs the committed release workflow. It revalidates the tag, finalized
+changelog, Release build, exact `.nupkg`/`.snupkg` set, symbol metadata, and package-consumer evidence before
+publishing through NuGet Trusted Publishing as `dmitriyzen`; the corresponding GitHub Release is created only
+after publication succeeds. The repository requires the NuGet trusted-publisher configuration for this workflow;
+it does not use a long-lived NuGet API-key secret.
 
 ## Telemetry and privacy
 
 The extraction and comparison core is offline and does not require network access. After a real comparison
 against an accepted baseline, JsonDrift makes a best-effort request to the shared `KeelMatrix.Telemetry`
-client for one activation signal and its low-frequency weekly heartbeat. Baseline creation alone is not an
-activation. Telemetry failures never change a report or assertion result.
-
-JsonDrift sends no product-specific comparison payload. The shared client emits its standard activation and
-heartbeat fields: event kind, the `jsondrift` tool identifier, package and telemetry versions, schema version,
-pseudonymous project and installation fingerprints, and the standard activation runtime/OS/CI/time or
-heartbeat-week field. The project fingerprint is `SHA-256("repo.v1" + normalized repository key)`. The normalized
-key comes, in order, from the CI repository identity (for example `GITHUB_SERVER_URL` plus `GITHUB_REPOSITORY`),
-the local git `origin` remote URL, the git root commit using `SHA-256("git-root.v1" + root commit hash)`, or
-project-file content as a fallback. It is a stable, unsalted pseudonym of the consuming codebase, deliberately
-used to correlate the same project across machines and time. The per-installation machine salt applies only to
-the separate `installation_hash`. These fields distinguish projects/installations and count activation and repeat
-use; no raw identity is transmitted. Contract content, baseline documents, raw repository URLs, paths, commit
-identifiers, type/member names, enum labels, discriminator values, converter names, serializer configuration
-values, project-file content, and exception messages are never sent. The documented comparison caller-path bound
-is 250 ms on the Windows validation host, measured with both a no-op client and a client that blocks indefinitely.
-Disable telemetry with `KEELMATRIX_NO_TELEMETRY=1`; the shared client also honors its process and repository-local controls.
-See [PRIVACY.md](PRIVACY.md) for the product-specific contract.
+client for activation and heartbeat signals; baseline creation alone is not an activation. JsonDrift sends no
+product-specific comparison payload, and telemetry failure never changes a report or assertion result. The
+shared telemetry package owns event fields, pseudonymous identifiers, delivery, retention, and opt-out
+precedence. See [PRIVACY.md](PRIVACY.md) for the JsonDrift-specific boundary and the shared telemetry policy.
 
 The runtime dependency graph is intentionally small: `System.Text.Json` `10.0.12` and
 `KeelMatrix.Telemetry` `[0.1.0]`. The analyzer and SourceLink packages are build-only dependencies and do not
@@ -137,4 +131,4 @@ The local validation script also runs the promoted rule matrix, checks canonical
 processes, and verifies its required-check manifest fail-closed.
 
 The comparison core remains local/offline at runtime. The package has no CLI, hosted client, registry
-integration, Kafka integration, or JSON-Schema exporter in this slice.
+integration, Kafka integration, or JSON-Schema exporter in this release.

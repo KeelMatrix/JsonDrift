@@ -6,24 +6,25 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $package = Get-Item -LiteralPath $PackagePath -ErrorAction Stop
-if ($package.Extension -ne '.nupkg') {
+if ($package.Name -notmatch '^KeelMatrix\.JsonDrift\.(?<version>\d+\.\d+\.\d+)\.nupkg$') {
     throw "consumer smoke requires a .nupkg: $PackagePath"
 }
+$packageVersion = $Matches.version
 
 $root = Join-Path ([System.IO.Path]::GetTempPath()) "jsondrift-consumer-$([Guid]::NewGuid().ToString('N'))"
 $project = Join-Path $root 'Consumer'
-$packages = if ([string]::IsNullOrWhiteSpace($env:NUGET_PACKAGES)) {
-    Join-Path $root 'packages'
-}
-else {
-    $env:NUGET_PACKAGES
-}
+$inheritedPackages = $env:NUGET_PACKAGES
+$packages = Join-Path $root 'packages'
 $feed = Join-Path $root 'feed'
 New-Item -ItemType Directory -Path $project, $packages, $feed -Force | Out-Null
 Copy-Item -LiteralPath $package.FullName -Destination $feed
+Write-Host "consumer package cache: isolated ($packages)"
+if (-not [string]::IsNullOrWhiteSpace($inheritedPackages)) {
+    Write-Host "inherited package cache ignored: $inheritedPackages"
+}
 
 $localSource = [System.Security.SecurityElement]::Escape($feed)
-$projectFile = @'
+$projectFile = @"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -32,10 +33,10 @@ $projectFile = @'
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="KeelMatrix.JsonDrift" Version="0.1.0" />
+    <PackageReference Include="KeelMatrix.JsonDrift" Version="$packageVersion" />
   </ItemGroup>
 </Project>
-'@
+"@
 
 $nugetConfig = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -120,6 +121,41 @@ public partial class SmokeContext : JsonSerializerContext
 }
 '@
 
+function Get-ZipEntryBytes {
+    param(
+        [Parameter(Mandatory = $true)][System.IO.Compression.ZipArchive]$Archive,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $entry = $Archive.GetEntry($Name)
+    if ($null -eq $entry) {
+        throw "candidate package is missing required entry: $Name"
+    }
+
+    $stream = $entry.Open()
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $stream.CopyTo($memory)
+        return ,$memory.ToArray()
+    }
+    finally {
+        $memory.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Get-Sha256 {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($Bytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
 try {
     Set-Content -LiteralPath (Join-Path $project 'Consumer.csproj') -Value $projectFile -Encoding UTF8
     Set-Content -LiteralPath (Join-Path $project 'NuGet.config') -Value $nugetConfig -Encoding UTF8
@@ -134,6 +170,25 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "consumer restore exited with code $LASTEXITCODE"
     }
+
+    Add-Type -AssemblyName System.IO.Compression
+    $candidateArchive = [IO.Compression.ZipFile]::OpenRead($package.FullName)
+    try {
+        $candidateAssemblyHash = Get-Sha256 -Bytes (Get-ZipEntryBytes -Archive $candidateArchive -Name 'lib/net8.0/KeelMatrix.JsonDrift.dll')
+    }
+    finally {
+        $candidateArchive.Dispose()
+    }
+
+    $restoredAssemblyPath = Join-Path $packages "keelmatrix.jsondrift/$packageVersion/lib/net8.0/KeelMatrix.JsonDrift.dll"
+    if (-not (Test-Path -LiteralPath $restoredAssemblyPath -PathType Leaf)) {
+        throw "restored package assembly was not found in the isolated cache: $restoredAssemblyPath"
+    }
+    $restoredAssemblyHash = Get-Sha256 -Bytes ([IO.File]::ReadAllBytes($restoredAssemblyPath))
+    if ($candidateAssemblyHash -cne $restoredAssemblyHash) {
+        throw "restored package assembly hash '$restoredAssemblyHash' does not match candidate '$candidateAssemblyHash'"
+    }
+    Write-Host "consumer package identity proof: candidate assembly sha256 $candidateAssemblyHash"
 
     & dotnet run --project (Join-Path $project 'Consumer.csproj') -c Release --no-restore
     if ($LASTEXITCODE -ne 0) {

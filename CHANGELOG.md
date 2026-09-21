@@ -8,7 +8,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
-- Best-effort activation and weekly heartbeat integration through `KeelMatrix.Telemetry`, with comparison-only
+- Best-effort activation and heartbeat integration through `KeelMatrix.Telemetry`, with comparison-only
   activation semantics, the shared client's standard event contract, process opt-out handling, and failure isolation.
 - Deterministic `ReaderBackward` contract comparison with complete structured change reports.
 - `JsonDrift.Compare`, `JsonDriftReport.AssertCompatible()`, and fail-closed diagnostics for incompatible or
@@ -32,6 +32,8 @@ All notable changes to this project are documented in this file. The format is b
 
 - Package inspection now allowlists only the generated `nuget.psmdcp` or 32-character hexadecimal core-properties
   entry and rejects unexpected `.psmdcp` names and other artifact mutations.
+- Release validation now checks the tag, package version, finalized changelog, exact package and symbol archives,
+  isolated package consumption, and tag-only Trusted Publishing workflow before publication.
 
 ## [0.1.0] - 2026-09-18
 

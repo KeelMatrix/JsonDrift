@@ -1,14 +1,14 @@
 # Initial release scope
 
 This document records the scope decisions for the first release of `KeelMatrix.JsonDrift` and the measured
-evidence behind each recommendation. The rule definitions themselves are in
+evidence behind each decision. The rule definitions themselves are in
 [docs/compatibility-rules.md](compatibility-rules.md); every claim below refers to a check that is executed by
 `experiments/KeelMatrix.JsonDrift.RuleMatrix`.
 
 ## 1. Compatibility policies
 
-**Recommendation: the first release ships `ReaderBackward` only.** Forward and full modes stay out of the
-shipped surface until their reading semantics are decided and proven on their own.
+The first release ships `ReaderBackward` only. Forward and full modes are outside the shipped surface because
+their reading semantics are not part of the measured release contract.
 
 Evidence:
 
@@ -77,11 +77,11 @@ so a later decision to ship them starts from measured behavior rather than from 
 
 ## 2. Target frameworks
 
-**Recommendation: the first release targets `net8.0` only.**
+The first release targets `net8.0` only.
 
-The supported platform claim for this release is `net8.0`, validated on Windows. Linux and macOS are not
-claimed because the rule matrix and package-consumer evidence have not been run on those platforms. Adding a
-platform claim later requires platform-specific validation rather than an assumption from the shared source.
+The supported platform claim for this release is `net8.0` on Windows, Linux, and macOS. The committed CI matrix
+runs the same repository gate on all three operating systems for the pinned SDK/runtime combination. Other
+runtime and SDK combinations remain outside the validated claim.
 
 Evidence:
 
@@ -105,16 +105,14 @@ to be re-run for that target before the package claims support for it.
 
 ## 3. Validation and CI evidence posture
 
-The repository has no remote CI configured because private GitHub Actions are not approved. The local
-`scripts/validate.ps1` gate is the source of truth for the release evidence that is available: it restores the
-solution, performs a direct-and-transitive vulnerability audit, verifies formatting and the Release build, runs
-the tests and promoted rule matrix, inspects the package, runs the isolated consumer smoke, and checks
-deterministic output. The product claim is limited to `net8.0` on Windows. Linux, macOS, other runtime/SDK
-combinations, and remote CI evidence remain residual uncertainty because they have not been exercised.
+The local `scripts/validate.ps1` gate is the source of truth for restore, the direct-and-transitive vulnerability
+audit, formatting, Release build, tests, the promoted rule matrix, package and symbol inspection, isolated
+consumer smoke, release-contract regressions, and deterministic output. The committed CI workflow runs that gate
+on `windows-latest`, `ubuntu-latest`, and `macos-latest` for the pinned SDK/runtime combination.
 
 ## 4. Microsoft JSON-schema exporter
 
-**Recommendation: keep the JSON-schema exporter out of the first release.**
+The JSON-schema exporter is outside the first release scope.
 
 Evidence:
 

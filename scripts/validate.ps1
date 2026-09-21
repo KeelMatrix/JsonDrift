@@ -10,7 +10,8 @@
 #>
 [CmdletBinding()]
 param(
-    [switch]$SkipNuGetAudit
+    [switch]$SkipNuGetAudit,
+    [string]$ExpectedPackageVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,7 +25,21 @@ $packageOutput = Join-Path $repoRoot 'artifacts/package'
 $canonicalRoot = Join-Path $repoRoot 'artifacts/canonical'
 $canonicalFileName = 'order-envelope.contract.json'
 $expectedPackageId = 'KeelMatrix.JsonDrift'
-$expectedPackageVersion = '0.1.0'
+$versionPropsPath = Join-Path $repoRoot 'Directory.Build.props'
+$expectedPackageVersion = if ([string]::IsNullOrWhiteSpace($ExpectedPackageVersion)) {
+    $versionMatch = [regex]::Match([IO.File]::ReadAllText($versionPropsPath), '<Version>(?<version>[^<]+)</Version>')
+    if (-not $versionMatch.Success) {
+        throw "could not derive package version from $versionPropsPath"
+    }
+    $versionMatch.Groups['version'].Value
+}
+else {
+    $ExpectedPackageVersion.Trim()
+}
+$expectedRepositoryCommit = (& git -C $repoRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $expectedRepositoryCommit -notmatch '^[0-9a-fA-F]{40,64}$') {
+    throw 'could not resolve the repository commit for package provenance validation'
+}
 $requiredIconPath = Join-Path $repoRoot 'icon.png'
 $consumerSmokeScript = Join-Path $PSScriptRoot 'consumer-smoke.ps1'
 $securityAuditTimeoutSeconds = 120
@@ -442,7 +457,8 @@ function Assert-PackageArtifact {
         }
 
         if ($null -eq $repository -or $repository.GetAttribute('type') -cne 'git' -or
-            $repository.GetAttribute('url') -cne 'https://github.com/KeelMatrix/JsonDrift') {
+            $repository.GetAttribute('url') -cne 'https://github.com/KeelMatrix/JsonDrift' -or
+            $repository.GetAttribute('commit') -cne $expectedRepositoryCommit) {
             throw 'package repository metadata is missing or incorrect'
         }
 
@@ -476,6 +492,144 @@ function Assert-PackageArtifact {
     }
     finally {
         $archive.Dispose()
+    }
+}
+
+function Get-PortablePdbIdentity {
+    param(
+        [Parameter(Mandatory = $true)][byte[]]$AssemblyBytes,
+        [Parameter(Mandatory = $true)][byte[]]$PdbBytes
+    )
+
+    Add-Type -AssemblyName System.Reflection.Metadata
+    $assemblyStream = [System.IO.MemoryStream]::new($AssemblyBytes, $false)
+    $pdbStream = [System.IO.MemoryStream]::new($PdbBytes, $false)
+    $peReader = $null
+    $pdbProvider = $null
+    try {
+        $peReader = [System.Reflection.PortableExecutable.PEReader]::new($assemblyStream)
+        $codeViewEntries = @($peReader.ReadDebugDirectory() | Where-Object {
+                $_.Type -eq [System.Reflection.PortableExecutable.DebugDirectoryEntryType]::CodeView
+            })
+        if ($codeViewEntries.Count -ne 1) {
+            throw "shipped assembly must contain exactly one CodeView debug entry; found $($codeViewEntries.Count)"
+        }
+
+        $codeView = $peReader.ReadCodeViewDebugDirectoryData($codeViewEntries[0])
+        $pdbProvider = [System.Reflection.Metadata.MetadataReaderProvider]::FromPortablePdbStream($pdbStream)
+        $id = $pdbProvider.GetMetadataReader().DebugMetadataHeader.Id
+        if ($id.Length -lt 16) {
+            throw 'portable PDB debug metadata identity is too short'
+        }
+
+        $idBytes = [byte[]]::new(16)
+        for ($index = 0; $index -lt 16; $index++) {
+            $idBytes[$index] = $id[$index]
+        }
+
+        $pdbGuid = [Guid]::new($idBytes)
+        if ($pdbGuid -ne $codeView.Guid) {
+            throw "portable PDB identity $pdbGuid does not match shipped assembly CodeView identity $($codeView.Guid)"
+        }
+
+        return [pscustomobject]@{
+            CodeViewGuid = [string]$codeView.Guid
+            CodeViewPath = [string]$codeView.Path
+        }
+    }
+    finally {
+        if ($null -ne $pdbProvider) { $pdbProvider.Dispose() }
+        if ($null -ne $peReader) { $peReader.Dispose() }
+        $pdbStream.Dispose()
+        $assemblyStream.Dispose()
+    }
+}
+
+function Assert-SymbolArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$SymbolsPackagePath,
+        [Parameter(Mandatory = $true)][string]$PackagePath
+    )
+
+    if (-not (Test-Path -LiteralPath $SymbolsPackagePath -PathType Leaf)) {
+        throw "symbol package is missing: $SymbolsPackagePath"
+    }
+    if ([IO.Path]::GetFileName($SymbolsPackagePath) -cne "$expectedPackageId.$expectedPackageVersion.snupkg") {
+        throw 'symbol package filename does not match the intended package identity and version'
+    }
+
+    Add-Type -AssemblyName System.IO.Compression
+    $symbolsArchive = $null
+    try {
+        $symbolsArchive = [System.IO.Compression.ZipFile]::OpenRead($SymbolsPackagePath)
+        $fixedEntries = @(
+            '[Content_Types].xml',
+            '_rels/.rels',
+            "$expectedPackageId.nuspec",
+            "lib/net8.0/$expectedPackageId.pdb"
+        ) | Sort-Object
+        $actualEntries = @($symbolsArchive.Entries | ForEach-Object FullName | Sort-Object)
+        $corePropertiesEntries = @($actualEntries | Where-Object { $_ -cmatch '^package/services/metadata/core-properties/(?:[0-9a-f]{32}|nuget)\.psmdcp$' })
+        $unexpectedEntries = @($actualEntries | Where-Object { $_ -cnotin $fixedEntries -and $_ -cnotin $corePropertiesEntries })
+        if ($corePropertiesEntries.Count -ne 1 -or $unexpectedEntries.Count -ne 0 -or
+            $actualEntries.Count -ne ($fixedEntries.Count + 1)) {
+            throw "symbol archive entries differ from the explicit intended set; actual: $($actualEntries -join ', ')"
+        }
+
+        $nuspec = [System.Xml.XmlDocument]::new()
+        $nuspecStream = [System.IO.MemoryStream]::new((Get-ZipEntryBytes -Archive $symbolsArchive -Name "$expectedPackageId.nuspec"))
+        try { $nuspec.Load($nuspecStream) } finally { $nuspecStream.Dispose() }
+        $metadata = $nuspec.SelectSingleNode("/*[local-name()='package']/*[local-name()='metadata']")
+        if ($null -eq $metadata) { throw 'symbol package nuspec is missing metadata' }
+
+        $symbolId = Get-RequiredXmlText -Parent $metadata -LocalName 'id' -Description 'symbol package id'
+        $symbolVersion = Get-RequiredXmlText -Parent $metadata -LocalName 'version' -Description 'symbol package version'
+        if ($symbolId -cne $expectedPackageId -or $symbolVersion -cne $expectedPackageVersion) {
+            throw 'symbol package nuspec identity or version is incorrect'
+        }
+
+        $packageTypes = @($metadata.SelectNodes("*[local-name()='packageTypes']/*[local-name()='packageType']") | ForEach-Object { $_.GetAttribute('name') })
+        if ($packageTypes.Count -ne 1 -or $packageTypes[0] -cne 'SymbolsPackage') {
+            throw 'symbol package nuspec must declare exactly one SymbolsPackage type'
+        }
+
+        $repository = $metadata.SelectSingleNode("*[local-name()='repository']")
+        if ($null -eq $repository -or $repository.GetAttribute('type') -cne 'git' -or
+            $repository.GetAttribute('url') -cne 'https://github.com/KeelMatrix/JsonDrift' -or
+            $repository.GetAttribute('commit') -cne $expectedRepositoryCommit) {
+            throw 'symbol package repository mapping does not identify the reviewed commit'
+        }
+
+        $pdbBytes = Get-ZipEntryBytes -Archive $symbolsArchive -Name "lib/net8.0/$expectedPackageId.pdb"
+        $pdbText = [System.Text.Encoding]::UTF8.GetString($pdbBytes)
+        $sourceLink = "https://raw.githubusercontent.com/KeelMatrix/JsonDrift/$expectedRepositoryCommit/*"
+        if (-not $pdbText.Contains($sourceLink, [StringComparison]::Ordinal)) {
+            throw "symbol PDB SourceLink does not point at the reviewed commit '$expectedRepositoryCommit'"
+        }
+        if ($pdbText -match '(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/][^\x00"<>\r\n]*|/Users/[^\x00"<>\r\n]*|/home/[^\x00"<>\r\n]*|/root/[^\x00"<>\r\n]*)') {
+            throw 'symbol PDB contains a private machine path'
+        }
+
+        Add-Type -AssemblyName System.IO.Compression
+        $packageArchive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+        try {
+            $assemblyBytes = Get-ZipEntryBytes -Archive $packageArchive -Name "lib/net8.0/$expectedPackageId.dll"
+        }
+        finally {
+            $packageArchive.Dispose()
+        }
+
+        $identity = Get-PortablePdbIdentity -AssemblyBytes $assemblyBytes -PdbBytes $pdbBytes
+        if (-not $identity.CodeViewPath.EndsWith("/$expectedPackageId.pdb", [StringComparison]::Ordinal) -and
+            -not $identity.CodeViewPath.EndsWith("\$expectedPackageId.pdb", [StringComparison]::Ordinal)) {
+            throw "shipped assembly CodeView path does not identify $expectedPackageId.pdb"
+        }
+
+        Write-Host "symbol entries: $($actualEntries -join ', ')"
+        Write-Host "symbol PDB: $expectedPackageId.pdb (SourceLink, reviewed commit, and assembly identity verified)"
+    }
+    finally {
+        if ($null -ne $symbolsArchive) { $symbolsArchive.Dispose() }
     }
 }
 
@@ -581,6 +735,75 @@ function Assert-PackageGateFailClosed {
     }
 }
 
+function Assert-SymbolGateRejectsMutation {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackagePath,
+        [Parameter(Mandatory = $true)][string]$SymbolsPackagePath,
+        [Parameter(Mandatory = $true)][string]$CaseName,
+        [Parameter(Mandatory = $true)][scriptblock]$Mutate
+    )
+
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) "jsondrift-symbol-gate-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    $copy = Join-Path $root "$CaseName.snupkg"
+    try {
+        Copy-Item -LiteralPath $SymbolsPackagePath -Destination $copy
+        & $Mutate $copy
+        $rejected = $false
+        try {
+            Assert-SymbolArtifact -SymbolsPackagePath $copy -PackagePath $PackagePath
+        }
+        catch {
+            $rejected = $true
+            Write-Host "symbol-gate regression rejected: $CaseName"
+            Write-Host "  $($_.Exception.Message)"
+        }
+        if (-not $rejected) {
+            throw "symbol-gate regression was accepted unexpectedly: $CaseName"
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Assert-SymbolGateFailClosed {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackagePath,
+        [Parameter(Mandatory = $true)][string]$SymbolsPackagePath
+    )
+
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) "jsondrift-symbol-missing-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    try {
+        $missing = Join-Path $root 'missing.snupkg'
+        $missingRejected = $false
+        try { Assert-SymbolArtifact -SymbolsPackagePath $missing -PackagePath $PackagePath }
+        catch { $missingRejected = $true; Write-Host 'symbol-gate regression rejected: missing-symbol-package' }
+        if (-not $missingRejected) { throw 'symbol-gate regression was accepted unexpectedly: missing-symbol-package' }
+    }
+    finally {
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Assert-SymbolGateRejectsMutation -PackagePath $PackagePath -SymbolsPackagePath $SymbolsPackagePath -CaseName 'corrupt-symbol-package' -Mutate {
+        param($path)
+        [IO.File]::WriteAllBytes($path, [byte[]](0x6e, 0x6f, 0x74, 0x2d, 0x7a, 0x69, 0x70))
+    }
+
+    Assert-SymbolGateRejectsMutation -PackagePath $PackagePath -SymbolsPackagePath $SymbolsPackagePath -CaseName 'unexpected-symbol-content' -Mutate {
+        param($path)
+        $archive = [System.IO.Compression.ZipFile]::Open($path, [System.IO.Compression.ZipArchiveMode]::Update)
+        try {
+            $entry = $archive.CreateEntry('lib/net8.0/unexpected.pdb')
+            $stream = $entry.Open()
+            try { $stream.Write([byte[]](0x70, 0x6f, 0x69, 0x73, 0x6f, 0x6e), 0, 6) }
+            finally { $stream.Dispose() }
+        }
+        finally { $archive.Dispose() }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $solution)) {
     throw "solution not found: $solution"
 }
@@ -593,13 +816,23 @@ Invoke-Check -Id 'telemetry-disabled' -Description 'repository validation teleme
     Assert-RepositoryTelemetryDisabled
 }
 
+Invoke-Check -Id 'release-workflow-contract' -Description 'tag-only release workflow contract' -Action {
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-release-workflow.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "release workflow contract exited with code $LASTEXITCODE" }
+}
+
+Invoke-Check -Id 'changelog-version-regressions' -Description 'finalized, unfinalized, and mismatch release-version regressions' -Action {
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-changelog-contract.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "changelog contract regressions exited with code $LASTEXITCODE" }
+}
+
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $requiredChecks = @($manifest.requiredChecks)
 if ($requiredChecks.Count -eq 0 -or $requiredChecks -contains $null -or $requiredChecks -contains '') {
     throw "validation manifest has no valid requiredChecks"
 }
 
-$restoreArguments = @('restore', $solution, '--configfile', $nugetConfig)
+$restoreArguments = @('restore', $solution, '--configfile', $nugetConfig, '--force', '--no-cache')
 if ($SkipNuGetAudit) {
     $restoreArguments += '-p:NuGetAudit=false'
 }
@@ -669,7 +902,7 @@ Invoke-Check -Id 'package' -Description 'packable product artifact' -Action {
     Assert-PngIcon -Path $requiredIconPath
     Remove-Item -LiteralPath $packageOutput -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $packageOutput -Force | Out-Null
-    Invoke-Dotnet -Arguments @('pack', $productProject, '-c', 'Release', '--no-build', '--no-restore', '-o', $packageOutput)
+    Invoke-Dotnet -Arguments @('pack', $productProject, '-c', 'Release', '--no-build', '--no-restore', '--include-symbols', '-p:SymbolPackageFormat=snupkg', '-o', $packageOutput)
 
     $packages = @(Get-ChildItem -LiteralPath $packageOutput -File -Filter '*.nupkg' | Where-Object { $_.Name -notlike '*.symbols.nupkg' })
     $symbols = @(Get-ChildItem -LiteralPath $packageOutput -File -Filter '*.snupkg')
@@ -682,13 +915,19 @@ Invoke-Check -Id 'package' -Description 'packable product artifact' -Action {
     }
 
     Assert-PackageArtifact -PackagePath $packages[0].FullName
+    Assert-SymbolArtifact -SymbolsPackagePath $symbols[0].FullName -PackagePath $packages[0].FullName
     $script:productPackagePath = $packages[0].FullName
+    $script:productSymbolsPath = $symbols[0].FullName
     Write-Host "package: $($packages[0].FullName)"
     Write-Host "symbols: $($symbols[0].FullName)"
 }
 
 Invoke-Check -Id 'package-gate-regressions' -Description 'package gate fail-closed regression cases' -Action {
     Assert-PackageGateFailClosed -PackagePath $script:productPackagePath
+}
+
+Invoke-Check -Id 'symbol-package-gate-regressions' -Description 'symbol package fail-closed regression cases' -Action {
+    Assert-SymbolGateFailClosed -PackagePath $script:productPackagePath -SymbolsPackagePath $script:productSymbolsPath
 }
 
 Invoke-Check -Id 'package-consumer' -Description 'isolated package-consumer smoke' -Action {
@@ -700,6 +939,11 @@ Invoke-Check -Id 'package-consumer' -Description 'isolated package-consumer smok
     if ($LASTEXITCODE -ne 0) {
         throw "consumer smoke exited with code $LASTEXITCODE"
     }
+}
+
+Invoke-Check -Id 'package-consumer-cache-regression' -Description 'poisoned inherited package-cache regression' -Action {
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-consumer-smoke.ps1') -PackagePath $script:productPackagePath
+    if ($LASTEXITCODE -ne 0) { throw "consumer cache regression exited with code $LASTEXITCODE" }
 }
 
 Write-Section 'Manifest'

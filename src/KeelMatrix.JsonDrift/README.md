@@ -4,8 +4,8 @@
 
 Version 1 targets `net8.0` and ships the `ReaderBackward` compatibility policy only. Reader-backward means that documented JSON wire data accepted by the earlier contract remains readable without loss under the later contract. It does not claim source/API compatibility or business/semantic compatibility.
 
-The package has been validated on Windows. Linux and macOS are not claimed for this release because equivalent
-platform evidence is not available yet.
+The package targets `net8.0`; the committed repository validation gate runs on Windows, Linux, and macOS for the
+pinned SDK/runtime combination. Other runtime and SDK combinations are outside the validated support claim.
 
 Install it with:
 
@@ -68,22 +68,11 @@ collection elements, and dictionary values.
 
 ## Telemetry and privacy
 
-The comparison core is offline. A real comparison against an accepted baseline makes a best-effort request
-to `KeelMatrix.Telemetry` for activation and a low-frequency weekly heartbeat; baseline creation alone does
-not activate telemetry. JsonDrift sends no product-specific comparison payload. The shared activation and
-heartbeat events carry their standard event, tool/version, schema, pseudonymous project/install fingerprint,
-runtime/OS/CI/time or week fields. The project fingerprint is `SHA-256("repo.v1" + normalized repository key)`.
-The normalized key comes, in order, from the CI repository identity (for example `GITHUB_SERVER_URL` plus
-`GITHUB_REPOSITORY`), the local git `origin` remote URL, the git root commit using
-`SHA-256("git-root.v1" + root commit hash)`, or project-file content as a fallback. It is a stable, unsalted
-pseudonym of the consuming codebase, deliberately used to correlate the same project across machines and time.
-The per-installation machine salt applies only to the separate `installation_hash`. Contract and baseline content,
-raw repository URLs, paths, commit identifiers, type/member names, enum labels, discriminator values, converter
-names, serializer configuration values, project-file content, and arbitrary exception messages never leave the
-machine. The documented comparison caller-path bound is 250 ms on the Windows validation host, measured with both
-a no-op client and a client that blocks indefinitely. Telemetry failure cannot change comparison or assertion
-results. Set `KEELMATRIX_NO_TELEMETRY=1` to opt out; the shared client also honors its process and repository-local
-controls. The full product-specific contract is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
+The comparison core is offline. A real comparison against an accepted baseline may make a best-effort request
+to `KeelMatrix.Telemetry`; baseline creation alone does not activate telemetry, and JsonDrift sends no
+product-specific comparison payload. Telemetry failure cannot change comparison or assertion results. The shared
+telemetry package owns its event fields, pseudonymous identifiers, delivery, retention, and opt-out precedence.
+The JsonDrift-specific boundary is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
 
 ## Deeper documentation
 

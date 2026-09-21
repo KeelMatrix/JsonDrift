@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  KEELMATRIX_NO_TELEMETRY: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  validate:
+    name: Release / validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release-version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
+              throw "Release tag '$env:RELEASE_TAG' must be vMAJOR.MINOR.PATCH."
+          }
+          "version=$($Matches.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Run changelog/version regressions
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/test-changelog-contract.ps1
+
+      - name: Validate changelog and version contract
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        shell: pwsh
+        run: >
+          pwsh -NoProfile -File ./scripts/validate-release-version.ps1
+          -ExpectedVersion "${{ steps.release-version.outputs.version }}"
+          -ExpectedCommit $env:EXPECTED_COMMIT
+
+      - name: Run repository validation gate
+        shell: pwsh
+        run: >
+          pwsh -NoProfile -File ./scripts/validate.ps1
+          -ExpectedPackageVersion "${{ steps.release-version.outputs.version }}"
+
+      - name: Confirm exact release artifact set
+        shell: pwsh
+        run: |
+          $version = '${{ steps.release-version.outputs.version }}'
+          $expected = @(
+              "KeelMatrix.JsonDrift.$version.nupkg",
+              "KeelMatrix.JsonDrift.$version.snupkg"
+          ) | Sort-Object
+          $actual = @(Get-ChildItem -LiteralPath ./artifacts/package -File | Select-Object -ExpandProperty Name | Sort-Object)
+          if ((Compare-Object -ReferenceObject $expected -DifferenceObject $actual) -ne $null) {
+              throw "Release artifact set differs. Expected: $($expected -join ', '). Actual: $($actual -join ', ')."
+          }
+
+      - name: Upload validated release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jsondrift-release-artifacts
+          if-no-files-found: error
+          path: |
+            ./artifacts/package/KeelMatrix.JsonDrift.${{ steps.release-version.outputs.version }}.nupkg
+            ./artifacts/package/KeelMatrix.JsonDrift.${{ steps.release-version.outputs.version }}.snupkg
+
+  publish:
+    name: Release / publish
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: jsondrift-release-artifacts
+          path: ./artifacts/package
+
+      - name: Confirm downloaded artifact set
+        shell: pwsh
+        run: |
+          $version = '${{ needs.validate.outputs.version }}'
+          $expected = @(
+              "KeelMatrix.JsonDrift.$version.nupkg",
+              "KeelMatrix.JsonDrift.$version.snupkg"
+          ) | Sort-Object
+          $actual = @(Get-ChildItem -LiteralPath ./artifacts/package -File | Select-Object -ExpandProperty Name | Sort-Object)
+          if ((Compare-Object -ReferenceObject $expected -DifferenceObject $actual) -ne $null) {
+              throw "Downloaded release artifact set differs. Expected: $($expected -join ', '). Actual: $($actual -join ', ')."
+          }
+
+      - name: Authenticate to NuGet.org
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: dmitriyzen
+
+      - name: Push validated package
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          $version = '${{ needs.validate.outputs.version }}'
+          dotnet nuget push "./artifacts/package/KeelMatrix.JsonDrift.$version.nupkg" `
+            --source https://api.nuget.org/v3/index.json `
+            --api-key $env:NUGET_API_KEY `
+            --no-symbols
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Push validated symbols
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          $version = '${{ needs.validate.outputs.version }}'
+          dotnet nuget push "./artifacts/package/KeelMatrix.JsonDrift.$version.snupkg" `
+            --source https://api.nuget.org/v3/index.json `
+            --api-key $env:NUGET_API_KEY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  release:
+    name: Release / GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release after publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          --repo "${{ github.repository }}"
+          --verify-tag
+          --title "KeelMatrix.JsonDrift ${{ github.ref_name }}"
+          --generate-notes
