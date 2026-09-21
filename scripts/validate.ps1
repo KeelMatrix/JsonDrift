@@ -321,7 +321,7 @@ function Assert-PngIcon {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "required founder-owned icon is absent: $Path"
+        throw "required package icon is absent: $Path"
     }
 
     $bytes = [System.IO.File]::ReadAllBytes($Path)
