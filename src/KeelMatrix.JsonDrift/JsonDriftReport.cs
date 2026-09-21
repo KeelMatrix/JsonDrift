@@ -12,14 +12,15 @@ public sealed class JsonDriftReport
     /// <summary>Gets the aggregate compatibility outcome.</summary>
     public JsonDriftClassification Outcome { get; }
 
-    /// <summary>Gets a value indicating whether the comparison is compatible.</summary>
+    /// <summary>Gets a value indicating whether every compared change has an explicit compatible classification.</summary>
     public bool IsCompatible => Outcome == JsonDriftClassification.Compatible;
 
     /// <summary>Gets every ordered change record found by the comparison.</summary>
     public IReadOnlyList<JsonDriftChange> Changes { get; }
 
     /// <summary>
-    /// Throws <see cref="JsonDriftCompatibilityException"/> when the comparison is incompatible or unsupported.
+    /// Throws <see cref="JsonDriftCompatibilityException"/> when the comparison is incompatible or unsupported;
+    /// unsupported metadata is never treated as compatible.
     /// </summary>
     public void AssertCompatible()
     {

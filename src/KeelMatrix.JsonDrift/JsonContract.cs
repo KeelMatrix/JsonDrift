@@ -11,7 +11,9 @@ namespace KeelMatrix.JsonDrift;
 /// This model describes structural JSON wire compatibility only. It is not a source/API compatibility model,
 /// and it cannot prove business or semantic compatibility. A contract can be explicitly unsupported when the
 /// serializer metadata contains a feature that JsonDrift has not measured; unsupported contracts must never be
-/// treated as compatible.
+/// treated as compatible. Format version 2 records complete nested object, collection-element, and dictionary
+/// key/value metadata, with bounded references for repeated types, and records the JSON token kind of scalar
+/// nodes for fail-closed comparison.
 /// </remarks>
 public sealed class JsonContract
 {
@@ -19,7 +21,10 @@ public sealed class JsonContract
     private static readonly string[] DiscriminatorProperty = { "discriminator" };
     private static readonly string[] PolymorphismProperty = { "polymorphism" };
     private static readonly string[] ElementTypeProperty = { "elementType" };
+    private static readonly string[] ElementContractProperty = { "element" };
     private static readonly string[] DictionaryTypeProperties = { "keyType", "valueType" };
+    private static readonly string[] DictionaryContractProperties = { "key", "value" };
+    private static readonly string[] ScalarTokenKindProperty = { "tokenKind" };
     private static readonly string[] EnumWireProperty = { "enumWire" };
     private static readonly string[] ReferenceProperty = { "reference" };
     private static readonly string[] TokenKinds = { "boolean", "string", "number", "object", "array", "any", "opaque" };
@@ -48,7 +53,7 @@ public sealed class JsonContract
         this.usesSourceGeneratedMetadata = usesSourceGeneratedMetadata;
     }
 
-    /// <summary>Gets the canonical baseline format version of this contract.</summary>
+    /// <summary>Gets the canonical baseline format version of this contract; the current version is 2.</summary>
     public int FormatVersion { get; }
 
     /// <summary>Gets the stable type name of the selected root contract.</summary>
@@ -281,12 +286,17 @@ public sealed class JsonContract
             case "array":
                 ValidateObjectProperties(
                     node,
-                    supported ? commonRequired.Concat(ElementTypeProperty).ToArray() : commonRequired,
-                    supported ? nodeOptional : nodeOptional.Concat(ElementTypeProperty).ToArray(),
+                    supported ? commonRequired.Concat(ElementTypeProperty).Concat(ElementContractProperty).ToArray() : commonRequired,
+                    supported ? nodeOptional.Concat(ElementContractProperty).ToArray() : nodeOptional.Concat(ElementTypeProperty).Concat(ElementContractProperty).ToArray(),
                     context);
                 if (node.TryGetProperty("elementType", out _))
                 {
                     RequireString(node, "elementType", context, allowEmpty: false);
+                }
+
+                if (node.TryGetProperty("element", out JsonElement element))
+                {
+                    allSupported &= ValidateNode(element, includeMembers: true, $"{context} element", discriminatorRequired: false);
                 }
 
                 break;
@@ -294,8 +304,8 @@ public sealed class JsonContract
             case "dictionary":
                 ValidateObjectProperties(
                     node,
-                    supported ? commonRequired.Concat(DictionaryTypeProperties).ToArray() : commonRequired,
-                    supported ? nodeOptional : nodeOptional.Concat(DictionaryTypeProperties).ToArray(),
+                    supported ? commonRequired.Concat(DictionaryTypeProperties).Concat(DictionaryContractProperties).ToArray() : commonRequired,
+                    supported ? nodeOptional.Concat(DictionaryContractProperties).ToArray() : nodeOptional.Concat(DictionaryTypeProperties).Concat(DictionaryContractProperties).ToArray(),
                     context);
                 if (node.TryGetProperty("keyType", out _))
                 {
@@ -307,10 +317,32 @@ public sealed class JsonContract
                     RequireString(node, "valueType", context, allowEmpty: false);
                 }
 
+                if (node.TryGetProperty("key", out JsonElement key))
+                {
+                    allSupported &= ValidateNode(key, includeMembers: true, $"{context} key", discriminatorRequired: false);
+                }
+
+                if (node.TryGetProperty("value", out JsonElement value))
+                {
+                    allSupported &= ValidateNode(value, includeMembers: true, $"{context} value", discriminatorRequired: false);
+                }
+
                 break;
 
             case "scalar":
-                ValidateObjectProperties(node, commonRequired, nodeOptional.Concat(EnumWireProperty).ToArray(), context);
+                ValidateObjectProperties(
+                    node,
+                    supported ? commonRequired.Concat(ScalarTokenKindProperty).ToArray() : commonRequired,
+                    nodeOptional.Concat(EnumWireProperty).Concat(ScalarTokenKindProperty).ToArray(),
+                    context);
+                if (node.TryGetProperty("tokenKind", out JsonElement scalarTokenKind))
+                {
+                    string tokenKind = RequireString(node, "tokenKind", context, allowEmpty: false);
+                    if (!TokenKinds.Contains(tokenKind, StringComparer.Ordinal))
+                    {
+                        throw new InvalidDataException($"Baseline {context} scalar has an unknown tokenKind.");
+                    }
+                }
                 if (string.Equals(rule, RuleIds.SupportedEnum, StringComparison.Ordinal))
                 {
                     if (!node.TryGetProperty("enumWire", out JsonElement enumWire))
@@ -417,7 +449,7 @@ public sealed class JsonContract
 
             if (member.TryGetProperty("shape", out JsonElement shape))
             {
-                memberSupported &= ValidateNode(shape, includeMembers: false, $"{context} member shape", discriminatorRequired: false);
+                memberSupported &= ValidateNode(shape, includeMembers: true, $"{context} member shape", discriminatorRequired: false);
             }
             else if (included && memberSupported && (tokenKind == "object" || tokenKind == "array"))
             {

@@ -19,6 +19,14 @@ All notable changes to this project are documented in this file. The format is b
   `System.Text.Json` behavior. Measured allowlisted `[JsonPropertyName]` renames are incompatible; arbitrary
   unallowlisted serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
+- Canonical baseline format 2 records complete nested object, collection-element, and dictionary key/value
+  contract graphs with bounded references for recursive types.
+- Root scalar token changes, nested contract changes, and evidenced numeric range, signedness, fractional, and
+  precision-loss transitions are classified fail-closed by the shipping comparison; unclassified scalar and
+  numeric transitions are unsupported.
+- Public reflection and source-generated regressions cover nested members, deeper graphs, collection elements,
+  dictionary values, root scalar tokens, and boundary-valued numeric witnesses through `Compare` and
+  `AssertCompatible`.
 
 ### Fixed
 

@@ -107,6 +107,24 @@ probe for the listed change; `control` is the unchanged-contract case.
 
 The R12/R12b/R12c family covers only added, defaulted, and renamed constructor parameters. Removing a serialized member is classified by R02 even when that member was bound by a constructor parameter; it is not a separate constructor-binding removal rule.
 
+### Shipping comparison rules for nested contracts and scalar roots
+
+The shipping `JsonDrift.Compare` and `JsonDriftReport.AssertCompatible` APIs use the `ReaderBackward`
+classification below. A baseline records the complete reachable contract graph: nested object members,
+collection elements, and dictionary keys and values carry their own node metadata. Repeated types are written
+as bounded references, and missing graph evidence is `Unsupported`; a CLR type-name difference is never used
+as a substitute for comparing the child contract.
+
+Root scalar nodes record their JSON token kind. A token change such as root `int` to root `string` is
+`Incompatible`. A same-token scalar type change without an explicit classification is `Unsupported`. Numeric
+changes are classified only by evidenced rules: proven range, signedness, fractional, or precision loss is
+`Incompatible`; a sound widening such as `int` to `long` is `Compatible`; an unclassified numeric transition
+is `Unsupported`. The public regression checks use `int` to `short` with `40000`, `int` to `uint` with `-1`,
+and `decimal` to `int` with `1.5`, and verify both the report and assertion API. Nested object, collection
+element, and dictionary value changes are likewise exercised through the public comparison and assertion APIs
+(`R06.token-kind.public-comparison`, `R06.token-kind.numeric-boundaries.public-comparison`, and
+`R07.shape.nested-contract.public-comparison`).
+
 ## Deny-by-default metadata classification
 
 A contract is **supported** only when its recorded shape, its recorded converter and resolver metadata, and
@@ -455,12 +473,13 @@ resolved further by the contract model.
 
 ## Canonical contract document
 
-The canonical document describes the effective contract in a stable form: `formatVersion` for format
-revisions, members sorted by name, a fixed key order, nested shapes described by reference so recursive
-contracts terminate, LF line endings, UTF-8 without a byte order mark, and no timestamps, host paths, or
-process-specific values. An enum member also records its wire identity - the serialized name the applied
-framework converter produces, or the numeric value - so a change that only alters an enum member's wire name
-is visible in the document instead of producing identical bytes.
+The canonical document describes the effective contract in a stable form: format version `2` for the current
+schema, members sorted by name, a fixed key order, complete nested object/element/key/value nodes, and
+references for repeated types so recursive contracts terminate within the existing traversal budget. Scalar
+nodes record their JSON token kind. The document uses LF line endings, UTF-8 without a byte order mark, and
+contains no timestamps, host paths, or process-specific values. An enum member also records its wire identity
+- the serialized name the applied framework converter produces, or the numeric value - so a change that only
+alters an enum member's wire name is visible in the document instead of producing identical bytes.
 
 Every node record states the discovery source that reached it (`reachedBy`), the path from the root contract
 (`path`), the classification rule that decided it (`rule`), and its support state (`supported`), and an

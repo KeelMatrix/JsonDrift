@@ -13,8 +13,11 @@ KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effec
 - Unsupported or unclassified metadata is deny-by-default and is never represented as compatible.
 - Extraction accepts `JsonTypeInfo`, reflection-backed `JsonSerializerOptions`, and source-generated
   type information. Application converters are not executed to reverse-engineer behavior.
-- Baselines use canonical JSON format version `1`: UTF-8 without BOM, LF line endings, stable ordering,
+- Baselines use canonical JSON format version `2`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
+- Canonical nodes retain complete nested object, collection-element, and dictionary key/value contracts;
+  repeated types use bounded references. Root scalar token changes are incompatible, proven numeric range or
+  precision loss is incompatible, and unclassified scalar or numeric transitions are unsupported.
 - `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
   incompatible or unsupported result.

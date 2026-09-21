@@ -658,7 +658,7 @@ Invoke-Check -Id 'canonical-determinism' -Description 'canonical bytes and encod
     Write-Host "canonical formatVersion: $($document.formatVersion)"
     Write-Host "canonical identical bytes: $identical"
 
-    if (-not $identical -or $document.formatVersion -ne 1 -or $hasBom -or $hasCr -or -not $hasFinalLf) {
+    if (-not $identical -or $document.formatVersion -ne 2 -or $hasBom -or $hasCr -or -not $hasFinalLf) {
         throw 'canonical determinism or encoding contract failed'
     }
 

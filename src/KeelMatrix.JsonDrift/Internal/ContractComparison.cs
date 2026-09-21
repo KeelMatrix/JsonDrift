@@ -18,6 +18,8 @@ internal static class ContractComparison
     private const string TokenKind = "R06.token-kind.number-to-string";
     private const string NumericWidening = "R06.token-kind.numeric-widening";
     private const string NumericNarrowing = "R06.token-kind.numeric-narrowing";
+    private const string NumericUnclassified = "R06.token-kind.numeric-unclassified";
+    private const string ScalarUnclassified = "R06.token-kind.scalar-unclassified";
     private const string Shape = "R07.shape.list-to-dictionary";
     private const string DictionaryKey = "R07.shape.dictionary-key-type";
     private const string EnumRename = "R08.enum.member-rename";
@@ -34,6 +36,21 @@ internal static class ContractComparison
     private const string ConstructorParameterDefaulted = "R12.binding.constructor-parameter-defaulted";
     private const string ConstructorParameterRenamed = "R12.binding.constructor-parameter-renamed";
     private const string ContextOptions = "R13.source-generation.context-options";
+
+    private sealed class ComparisonContext
+    {
+        public required ChangeSet Changes { get; init; }
+
+        public required bool LaterRespectsNullableAnnotations { get; init; }
+
+        public required bool LaterRequiresConstructorParameters { get; init; }
+
+        public required IReadOnlyDictionary<string, JsonElement> EarlierNodes { get; init; }
+
+        public required IReadOnlyDictionary<string, JsonElement> LaterNodes { get; init; }
+
+        public HashSet<string> ComparedNodePairs { get; } = new(StringComparer.Ordinal);
+    }
 
     public static JsonDriftReport Compare(JsonContract earlier, JsonContract later, JsonCompatibility compatibility)
     {
@@ -55,13 +72,21 @@ internal static class ContractComparison
         CollectUnsupported(earlierDocument.RootElement, "earlier", changes);
         CollectUnsupported(laterDocument.RootElement, "later", changes);
         CompareOptions(earlierDocument.RootElement, laterDocument.RootElement, changes);
+        JsonElement earlierRoot = earlierDocument.RootElement.GetProperty("root");
+        JsonElement laterRoot = laterDocument.RootElement.GetProperty("root");
+        var context = new ComparisonContext
+        {
+            Changes = changes,
+            LaterRespectsNullableAnnotations = laterRespectsNullableAnnotations,
+            LaterRequiresConstructorParameters = laterRequiresConstructorParameters,
+            EarlierNodes = IndexNodes(earlierRoot),
+            LaterNodes = IndexNodes(laterRoot),
+        };
         CompareNode(
-            earlierDocument.RootElement.GetProperty("root"),
-            laterDocument.RootElement.GetProperty("root"),
+            earlierRoot,
+            laterRoot,
             "root",
-            changes,
-            laterRespectsNullableAnnotations,
-            laterRequiresConstructorParameters);
+            context);
 
         IReadOnlyList<JsonDriftChange> ordered = changes.ToArray();
         JsonDriftClassification outcome = ordered.Any(static change => change.Classification == JsonDriftClassification.Unsupported)
@@ -127,6 +152,54 @@ internal static class ContractComparison
             foreach (JsonElement derived in polymorphism.GetProperty("derivedTypes").EnumerateArray())
             {
                 CollectUnsupportedNode(derived, side, changes);
+            }
+        }
+
+        foreach (string childProperty in new[] { "element", "key", "value" })
+        {
+            if (node.TryGetProperty(childProperty, out JsonElement child))
+            {
+                CollectUnsupportedNode(child, side, changes);
+            }
+        }
+    }
+
+    private static Dictionary<string, JsonElement> IndexNodes(JsonElement root)
+    {
+        var nodes = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        IndexNode(root, nodes);
+        return nodes;
+    }
+
+    private static void IndexNode(JsonElement node, IDictionary<string, JsonElement> nodes)
+    {
+        string path = NodePath(node);
+        nodes.TryAdd(path, node);
+
+        if (node.TryGetProperty("members", out JsonElement members))
+        {
+            foreach (JsonElement member in members.EnumerateArray())
+            {
+                if (member.TryGetProperty("shape", out JsonElement shape))
+                {
+                    IndexNode(shape, nodes);
+                }
+            }
+        }
+
+        foreach (string childProperty in new[] { "element", "key", "value" })
+        {
+            if (node.TryGetProperty(childProperty, out JsonElement child))
+            {
+                IndexNode(child, nodes);
+            }
+        }
+
+        if (node.TryGetProperty("polymorphism", out JsonElement polymorphism))
+        {
+            foreach (JsonElement derived in polymorphism.GetProperty("derivedTypes").EnumerateArray())
+            {
+                IndexNode(derived, nodes);
             }
         }
     }
@@ -202,45 +275,88 @@ internal static class ContractComparison
         JsonElement earlier,
         JsonElement later,
         string path,
-        ChangeSet changes,
-        bool laterRespectsNullableAnnotations,
-        bool laterRequiresConstructorParameters)
+        ComparisonContext context)
     {
+        string pair = $"{NodePath(earlier)}\u001f{NodePath(later)}";
+        if (!context.ComparedNodePairs.Add(pair))
+        {
+            return;
+        }
+
         string earlierKind = earlier.GetProperty("kind").GetString()!;
         string laterKind = later.GetProperty("kind").GetString()!;
 
+        bool earlierReference = string.Equals(earlierKind, "reference", StringComparison.Ordinal);
+        bool laterReference = string.Equals(laterKind, "reference", StringComparison.Ordinal);
+        if (earlierReference || laterReference)
+        {
+            JsonElement earlierTarget = earlierReference
+                ? ResolveReference(earlier, context.EarlierNodes, path, context.Changes)
+                : earlier;
+            JsonElement laterTarget = laterReference
+                ? ResolveReference(later, context.LaterNodes, path, context.Changes)
+                : later;
+
+            if (earlierTarget.ValueKind != JsonValueKind.Undefined && laterTarget.ValueKind != JsonValueKind.Undefined)
+            {
+                CompareNode(earlierTarget, laterTarget, path, context);
+            }
+
+            return;
+        }
+
         if (!string.Equals(earlierKind, laterKind, StringComparison.Ordinal))
         {
-            changes.Add(path, JsonDriftClassification.Incompatible, Shape, $"the JSON shape changes from {earlierKind} to {laterKind}");
+            context.Changes.Add(path, JsonDriftClassification.Incompatible, Shape, $"the JSON shape changes from {earlierKind} to {laterKind}");
             return;
         }
 
         switch (earlierKind)
         {
             case "object":
-                CompareObject(earlier, later, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
+                CompareObject(earlier, later, path, context);
                 break;
             case "array":
-                CompareTypeField(earlier, later, "elementType", path, changes, Shape);
+                CompareNestedNodeField(earlier, later, "element", $"{path}[]", context);
                 break;
             case "dictionary":
-                CompareTypeField(earlier, later, "keyType", path, changes, DictionaryKey, unsupported: true);
-                CompareTypeField(earlier, later, "valueType", path, changes, TokenKind);
+                CompareTypeField(earlier, later, "keyType", path, context.Changes, DictionaryKey, unsupported: true);
+                CompareNestedNodeField(earlier, later, "key", $"{path}{{key}}", context);
+                CompareNestedNodeField(earlier, later, "value", $"{path}{{value}}", context);
                 break;
             case "scalar":
-                CompareEnumWire(earlier, later, path, changes);
+                CompareScalar(earlier, later, path, context.Changes);
                 break;
         }
+    }
+
+    private static JsonElement ResolveReference(
+        JsonElement reference,
+        IReadOnlyDictionary<string, JsonElement> nodes,
+        string path,
+        ChangeSet changes)
+    {
+        string targetPath = reference.GetProperty("reference").GetString()!;
+        if (nodes.TryGetValue(targetPath, out JsonElement target))
+        {
+            return target;
+        }
+
+        changes.Add(
+            path,
+            JsonDriftClassification.Unsupported,
+            "unsupported.shape-evidence-missing",
+            $"the reference target '{targetPath}' is not present in the recorded contract graph");
+        return default;
     }
 
     private static void CompareObject(
         JsonElement earlier,
         JsonElement later,
         string path,
-        ChangeSet changes,
-        bool laterRespectsNullableAnnotations,
-        bool laterRequiresConstructorParameters)
+        ComparisonContext context)
     {
+        ChangeSet changes = context.Changes;
         bool oldExtension = earlier.GetProperty("extensionData").GetBoolean();
         bool newExtension = later.GetProperty("extensionData").GetBoolean();
         if (oldExtension != newExtension)
@@ -256,11 +372,19 @@ internal static class ContractComparison
 
         if (earlier.TryGetProperty("members", out JsonElement oldMembers) && later.TryGetProperty("members", out JsonElement newMembers))
         {
-            CompareMembers(oldMembers, newMembers, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters, newExtension);
+            CompareMembers(oldMembers, newMembers, path, context, newExtension);
         }
         else if (earlier.TryGetProperty("memberNames", out JsonElement oldNames) && later.TryGetProperty("memberNames", out JsonElement newNames))
         {
             CompareMemberNames(oldNames, newNames, path, changes);
+        }
+        else
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Unsupported,
+                "unsupported.shape-evidence-missing",
+                "one nested object is missing its complete member metadata");
         }
 
         bool hasOldPolymorphism = earlier.TryGetProperty("polymorphism", out JsonElement oldPolymorphism);
@@ -271,9 +395,7 @@ internal static class ContractComparison
                 hasOldPolymorphism ? oldPolymorphism : null,
                 hasNewPolymorphism ? newPolymorphism : null,
                 path,
-                changes,
-                laterRespectsNullableAnnotations,
-                laterRequiresConstructorParameters);
+                context);
         }
     }
 
@@ -281,11 +403,10 @@ internal static class ContractComparison
         JsonElement earlier,
         JsonElement later,
         string path,
-        ChangeSet changes,
-        bool laterRespectsNullableAnnotations,
-        bool laterRequiresConstructorParameters,
+        ComparisonContext context,
         bool laterExtensionData)
     {
+        ChangeSet changes = context.Changes;
         var oldByName = earlier.EnumerateArray().ToDictionary(static member => member.GetProperty("name").GetString()!, StringComparer.Ordinal);
         var newByName = later.EnumerateArray().ToDictionary(static member => member.GetProperty("name").GetString()!, StringComparer.Ordinal);
         var renames = FindExplicitRenames(oldByName, newByName);
@@ -305,7 +426,7 @@ internal static class ContractComparison
                     continue;
                 }
 
-                AddMemberAddition(newMember, memberPath, changes, laterRequiresConstructorParameters);
+                AddMemberAddition(newMember, memberPath, changes, context.LaterRequiresConstructorParameters);
                 continue;
             }
 
@@ -360,7 +481,7 @@ internal static class ContractComparison
                 continue;
             }
 
-            CompareMember(oldMember, newMember, memberPath, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
+            CompareMember(oldMember, newMember, memberPath, context);
         }
     }
 
@@ -489,10 +610,9 @@ internal static class ContractComparison
         JsonElement earlier,
         JsonElement later,
         string path,
-        ChangeSet changes,
-        bool laterRespectsNullableAnnotations,
-        bool laterRequiresConstructorParameters)
+        ComparisonContext context)
     {
+        ChangeSet changes = context.Changes;
         CompareConstructorBinding(earlier, later, path, changes);
 
         bool oldRequired = earlier.GetProperty("required").GetBoolean();
@@ -508,7 +628,7 @@ internal static class ContractComparison
                     : "the later contract relaxes requiredness; earlier documents remain readable");
         }
 
-        CompareNullability(earlier, later, path, changes, laterRespectsNullableAnnotations);
+        CompareNullability(earlier, later, path, changes, context.LaterRespectsNullableAnnotations);
 
         string oldToken = earlier.GetProperty("tokenKind").GetString()!;
         string newToken = later.GetProperty("tokenKind").GetString()!;
@@ -530,7 +650,7 @@ internal static class ContractComparison
         }
 
         CompareEnumWire(earlier, later, path, changes);
-        CompareShapes(earlier, later, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
+        CompareShapes(earlier, later, path, context);
     }
 
     private static void CompareConstructorBinding(
@@ -594,10 +714,9 @@ internal static class ContractComparison
         JsonElement earlier,
         JsonElement later,
         string path,
-        ChangeSet changes,
-        bool laterRespectsNullableAnnotations,
-        bool laterRequiresConstructorParameters)
+        ComparisonContext context)
     {
+        ChangeSet changes = context.Changes;
         bool hasOld = earlier.TryGetProperty("shape", out JsonElement oldShape);
         bool hasNew = later.TryGetProperty("shape", out JsonElement newShape);
         if (hasOld != hasNew)
@@ -608,7 +727,7 @@ internal static class ContractComparison
 
         if (hasOld)
         {
-            CompareNode(oldShape, newShape, path, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
+            CompareNode(oldShape, newShape, path, context);
         }
     }
 
@@ -638,14 +757,40 @@ internal static class ContractComparison
         }
     }
 
+    private static void CompareNestedNodeField(
+        JsonElement earlier,
+        JsonElement later,
+        string property,
+        string path,
+        ComparisonContext context)
+    {
+        bool oldExists = earlier.TryGetProperty(property, out JsonElement oldNode);
+        bool newExists = later.TryGetProperty(property, out JsonElement newNode);
+        if (!oldExists && !newExists)
+        {
+            return;
+        }
+
+        if (!oldExists || !newExists)
+        {
+            context.Changes.Add(
+                path,
+                JsonDriftClassification.Unsupported,
+                "unsupported.shape-evidence-missing",
+                $"the {property} contract graph is missing on one side of the comparison");
+            return;
+        }
+
+        CompareNode(oldNode, newNode, path, context);
+    }
+
     private static void ComparePolymorphism(
         JsonElement? earlier,
         JsonElement? later,
         string path,
-        ChangeSet changes,
-        bool laterRespectsNullableAnnotations,
-        bool laterRequiresConstructorParameters)
+        ComparisonContext context)
     {
+        ChangeSet changes = context.Changes;
         if (earlier is null || later is null)
         {
             changes.Add(
@@ -687,8 +832,52 @@ internal static class ContractComparison
             }
             else
             {
-                CompareNode(oldItem, newItem, itemPath, changes, laterRespectsNullableAnnotations, laterRequiresConstructorParameters);
+                CompareNode(oldItem, newItem, itemPath, context);
             }
+        }
+    }
+
+    private static void CompareScalar(JsonElement earlier, JsonElement later, string path, ChangeSet changes)
+    {
+        CompareEnumWire(earlier, later, path, changes);
+
+        if (!earlier.TryGetProperty("tokenKind", out JsonElement oldTokenElement) ||
+            !later.TryGetProperty("tokenKind", out JsonElement newTokenElement))
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Unsupported,
+                "unsupported.shape-evidence-missing",
+                "a scalar contract is missing its recorded JSON token kind");
+            return;
+        }
+
+        string oldToken = oldTokenElement.GetString()!;
+        string newToken = newTokenElement.GetString()!;
+        if (!string.Equals(oldToken, newToken, StringComparison.Ordinal))
+        {
+            changes.Add(path, JsonDriftClassification.Incompatible, TokenRule(oldToken, newToken), $"the JSON token changes from {oldToken} to {newToken}");
+            return;
+        }
+
+        string oldType = earlier.GetProperty("typeName").GetString()!;
+        string newType = later.GetProperty("typeName").GetString()!;
+        if (string.Equals(oldType, newType, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (oldToken == "number")
+        {
+            CompareNumericTypes(oldType, newType, path, changes);
+        }
+        else
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Unsupported,
+                ScalarUnclassified,
+                $"the scalar type changes from {oldType} to {newType} without a measured wire classification");
         }
     }
 
@@ -745,18 +934,146 @@ internal static class ContractComparison
 
     private static void CompareNumericTypes(string earlier, string later, string path, ChangeSet changes)
     {
-        bool widening = earlier == "System.Int32" && later == "System.Int64";
-        bool narrowing = earlier == "System.Int64" && later == "System.Int32";
+        if (string.Equals(earlier, later, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (TryGetInteger(earlier, out bool earlierSigned, out int earlierBits) &&
+            TryGetInteger(later, out bool laterSigned, out int laterBits))
+        {
+            if ((earlierSigned == laterSigned && laterBits >= earlierBits) ||
+                (!earlierSigned && laterSigned && laterBits > earlierBits))
+            {
+                changes.Add(
+                    path,
+                    JsonDriftClassification.Compatible,
+                    NumericWidening,
+                    $"the later numeric member widens from {earlier} to {later}; every earlier value is representable");
+            }
+            else
+            {
+                changes.Add(
+                    path,
+                    JsonDriftClassification.Incompatible,
+                    NumericNarrowing,
+                    $"the later numeric member cannot represent every earlier {earlier} value when changing to {later}");
+            }
+
+            return;
+        }
+
+        if (IsFloating(earlier) && IsFloating(later) && FloatingRank(later) > FloatingRank(earlier))
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Compatible,
+                NumericWidening,
+                $"the later numeric member widens from {earlier} to {later} without losing a value represented by the earlier type");
+            return;
+        }
+
+        if (IsFloating(earlier) && IsFloating(later))
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Incompatible,
+                NumericNarrowing,
+                $"the later numeric member narrows from {earlier} to {later} and can lose range or precision");
+            return;
+        }
+
+        if (TryGetInteger(earlier, out _, out int earlierIntegerBits) && later == "System.Decimal" && earlierIntegerBits <= 64)
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Compatible,
+                NumericWidening,
+                $"the later decimal member exactly represents every earlier {earlier} value");
+            return;
+        }
+
+        if (TryGetInteger(earlier, out _, out earlierIntegerBits) && IsFloating(later))
+        {
+            if (earlierIntegerBits <= FloatingPrecisionBits(later))
+            {
+                changes.Add(
+                    path,
+                    JsonDriftClassification.Compatible,
+                    NumericWidening,
+                    $"the later {later} representation exactly represents every earlier {earlier} integer value");
+            }
+            else
+            {
+                changes.Add(
+                    path,
+                    JsonDriftClassification.Incompatible,
+                    NumericNarrowing,
+                    $"the later {later} representation cannot preserve every earlier {earlier} integer value");
+            }
+
+            return;
+        }
+
+        if ((earlier == "System.Decimal" || IsFloating(earlier)) && IsNumericType(later))
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Incompatible,
+                NumericNarrowing,
+                $"the numeric conversion from {earlier} to {later} can lose range, fractional values, or precision");
+            return;
+        }
+
         changes.Add(
             path,
-            narrowing ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
-            narrowing ? NumericNarrowing : widening ? NumericWidening : TokenKind,
-            narrowing
-                ? $"the later numeric member narrows from {earlier} to {later}"
-                : widening
-                    ? $"the later numeric member widens from {earlier} to {later}"
-                    : $"the numeric member changes from {earlier} to {later}");
+            JsonDriftClassification.Unsupported,
+            NumericUnclassified,
+            $"the numeric conversion from {earlier} to {later} is not covered by an evidenced compatibility rule");
     }
+
+    private static bool IsNumericType(string type) =>
+        TryGetInteger(type, out _, out _) ||
+        IsFloating(type) ||
+        type == "System.Decimal";
+
+    private static bool TryGetInteger(string type, out bool signed, out int bits)
+    {
+        (signed, bits) = type switch
+        {
+            "System.SByte" => (true, 8),
+            "System.Byte" => (false, 8),
+            "System.Int16" => (true, 16),
+            "System.UInt16" => (false, 16),
+            "System.Int32" => (true, 32),
+            "System.UInt32" => (false, 32),
+            "System.Int64" => (true, 64),
+            "System.UInt64" => (false, 64),
+            "System.Int128" => (true, 128),
+            "System.UInt128" => (false, 128),
+            _ => (false, 0),
+        };
+
+        return bits != 0;
+    }
+
+    private static bool IsFloating(string type) => type is "System.Half" or "System.Single" or "System.Double";
+
+    private static int FloatingRank(string type) => type switch
+    {
+        "System.Half" => 1,
+        "System.Single" => 2,
+        "System.Double" => 3,
+        _ => 0,
+    };
+
+    private static int FloatingPrecisionBits(string type) => type switch
+    {
+        "System.Half" => 11,
+        "System.Single" => 24,
+        "System.Double" => 53,
+        _ => 0,
+    };
 
     private static bool IsNullableValueType(string typeName) => typeName.StartsWith("System.Nullable<", StringComparison.Ordinal);
 

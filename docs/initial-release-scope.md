@@ -38,7 +38,7 @@ Evidence:
   which a rename or removal is accepted in the reverse direction while the value is silently dropped. The
   parse-only variant has its own rule-by-rule proof obligation and is not part of the measured matrix.
 * `ReaderBackward` is the only policy whose semantics are proven for every shipped rule in both a change case
-  and an unchanged-contract control case: the matrix runs 250 executed checks and all of them agree with the
+  and an unchanged-contract control case: the matrix runs 253 executed checks and all of them agree with the
   recorded classification. The count is asserted by `D04.matrix.check-count`, so adding, removing, or
   reclassifying a check fails the matrix until this document is updated with it.
 * The invariant that unsupported or opaque metadata never maps to compatible is enforced by construction

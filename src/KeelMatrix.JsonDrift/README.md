@@ -53,9 +53,18 @@ unallowlisted serialization attribute or value, including an unmeasured rename, 
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.
 Reading never rewrites a baseline.
 
-Canonical baseline documents use `formatVersion: 1`. The format is versioned; malformed, foreign, unsupported, future, oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated, stable in ordering, and contain no timestamps or host paths.
+Canonical baseline documents use `formatVersion: 2`. The format records complete nested object, collection
+element, and dictionary key/value contract nodes, while repeated types use bounded references so recursive
+contracts terminate. Scalar nodes record their JSON token kind. Malformed, foreign, unsupported, future,
+oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated,
+stable in ordering, and contain no timestamps or host paths.
 
 Unsupported metadata is deny-by-default and includes a diagnostic naming the offending declaration or feature where available. Custom converters are not executed to reverse-engineer behavior.
+
+Comparison is fail-closed at the root and throughout the nested graph: token changes are incompatible, explicit
+numeric widening and narrowing rules are used for numeric type changes, and unclassified scalar or numeric
+transitions are unsupported. `Compare` and `AssertCompatible` apply the same result to nested object members,
+collection elements, and dictionary values.
 
 ## Telemetry and privacy
 

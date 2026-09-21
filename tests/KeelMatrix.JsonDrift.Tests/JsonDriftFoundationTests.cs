@@ -20,7 +20,7 @@ public sealed partial class JsonDriftFoundationTests
 
         Assert.True(contract.IsSupported);
         Assert.Null(contract.UnsupportedReason);
-        Assert.Equal(1, contract.FormatVersion);
+        Assert.Equal(2, contract.FormatVersion);
         Assert.Contains("SimpleEnvelope", contract.RootTypeName, StringComparison.Ordinal);
         Assert.Contains("\n", contract.CanonicalJson, StringComparison.Ordinal);
     }
@@ -214,6 +214,135 @@ public sealed partial class JsonDriftFoundationTests
     }
 
     [Fact]
+    public void CompareDetectsNestedCollectionAndDictionaryContractChangesThroughPublicApi()
+    {
+        JsonSerializerOptions options = ReflectionOptions();
+
+        JsonDriftReport nested = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(NestedEnvelopeV2)),
+            WithVersionedTypeNames(
+                JsonDrift.Extract<NestedEnvelopeV1>(options),
+                (nameof(NestedEnvelopeV1), nameof(NestedEnvelopeV2)),
+                (nameof(NestedChildV1), nameof(NestedChildV2))),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftReport required = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(NestedRequiredEnvelopeV2)),
+            WithVersionedTypeNames(
+                JsonDrift.Extract<NestedRequiredEnvelopeV1>(options),
+                (nameof(NestedRequiredEnvelopeV1), nameof(NestedRequiredEnvelopeV2)),
+                (nameof(NestedRequiredChildV1), nameof(NestedRequiredChildV2))),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftReport deep = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(DeepEnvelopeV2)),
+            WithVersionedTypeNames(
+                JsonDrift.Extract<DeepEnvelopeV1>(options),
+                (nameof(DeepEnvelopeV1), nameof(DeepEnvelopeV2)),
+                (nameof(DeepChildV1), nameof(DeepChildV2)),
+                (nameof(DeepLeafV1), nameof(DeepLeafV2))),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftReport collection = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(CollectionEnvelopeV2)),
+            WithVersionedTypeNames(
+                JsonDrift.Extract<CollectionEnvelopeV1>(options),
+                (nameof(CollectionEnvelopeV1), nameof(CollectionEnvelopeV2)),
+                (nameof(CollectionItemV1), nameof(CollectionItemV2))),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftReport dictionary = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(DictionaryEnvelopeV2)),
+            WithVersionedTypeNames(
+                JsonDrift.Extract<DictionaryEnvelopeV1>(options),
+                (nameof(DictionaryEnvelopeV1), nameof(DictionaryEnvelopeV2)),
+                (nameof(DictionaryItemV1), nameof(DictionaryItemV2))),
+            JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Incompatible, nested.Outcome);
+        Assert.Contains(nested.Changes, change => change.Path == "root.Child.Value");
+        Assert.Equal(JsonDriftClassification.Incompatible, required.Outcome);
+        Assert.Contains(required.Changes, change => change.Path == "root.Child.Added");
+        Assert.Equal(JsonDriftClassification.Incompatible, deep.Outcome);
+        Assert.Contains(deep.Changes, change => change.Path == "root.Child.Leaf.Value");
+        Assert.Equal(JsonDriftClassification.Incompatible, collection.Outcome);
+        Assert.Contains(collection.Changes, change => change.Path == "root.Items[].Value");
+        Assert.Equal(JsonDriftClassification.Incompatible, dictionary.Outcome);
+        Assert.Contains(dictionary.Changes, change => change.Path == "root.Values{value}.Value");
+
+        Assert.Throws<JsonDriftCompatibilityException>(() => nested.AssertCompatible());
+        Assert.Throws<JsonDriftCompatibilityException>(() => required.AssertCompatible());
+        Assert.Throws<JsonDriftCompatibilityException>(() => deep.AssertCompatible());
+        Assert.Throws<JsonDriftCompatibilityException>(() => collection.AssertCompatible());
+        Assert.Throws<JsonDriftCompatibilityException>(() => dictionary.AssertCompatible());
+    }
+
+    [Fact]
+    public void CompareDetectsRootScalarTokenChangeAndAssertionFails()
+    {
+        JsonSerializerOptions options = ReflectionOptions();
+        JsonDriftReport report = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(string)),
+            JsonDrift.Extract(options.GetTypeInfo(typeof(int))),
+            JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Incompatible, report.Outcome);
+        JsonDriftChange change = Assert.Single(report.Changes);
+        Assert.Equal("root", change.Path);
+        Assert.Equal("R06.token-kind.number-to-string", change.RuleId);
+        Assert.Throws<JsonDriftCompatibilityException>(() => report.AssertCompatible());
+    }
+
+    [Fact]
+    public void CompareFailsClosedForUnclassifiedRootScalarTransition()
+    {
+        JsonSerializerOptions options = ReflectionOptions();
+        JsonDriftReport report = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(Guid)),
+            JsonDrift.Extract(options.GetTypeInfo(typeof(DateTime))),
+            JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Unsupported, report.Outcome);
+        JsonDriftChange change = Assert.Single(report.Changes);
+        Assert.Equal("root", change.Path);
+        Assert.Equal("R06.token-kind.scalar-unclassified", change.RuleId);
+        Assert.Throws<JsonDriftCompatibilityException>(() => report.AssertCompatible());
+    }
+
+    [Fact]
+    public void CompareRejectsProvenNumericRangeSignednessAndFractionalLoss()
+    {
+        JsonSerializerOptions options = ReflectionOptions();
+        JsonContract intBaseline = JsonDrift.Extract<IntValue>(options);
+
+        JsonDriftReport intToShort = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(ShortValue)), intBaseline, JsonCompatibility.ReaderBackward);
+        JsonDriftReport intToUnsigned = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(UnsignedValue)), intBaseline, JsonCompatibility.ReaderBackward);
+        JsonDriftReport decimalToInt = JsonDrift.Compare(
+            options.GetTypeInfo(typeof(IntegerValue)), JsonDrift.Extract<DecimalValue>(options), JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Incompatible, intToShort.Outcome);
+        Assert.Equal(JsonDriftClassification.Incompatible, intToUnsigned.Outcome);
+        Assert.Equal(JsonDriftClassification.Incompatible, decimalToInt.Outcome);
+        Assert.All(
+            new[] { intToShort, intToUnsigned, decimalToInt },
+            report => Assert.Throws<JsonDriftCompatibilityException>(() => report.AssertCompatible()));
+    }
+
+    [Fact]
+    public void CompareUsesNestedGraphForSourceGeneratedMetadata()
+    {
+        JsonDriftReport report = JsonDrift.Compare(
+            SourceContext.Default.NestedEnvelopeV2,
+            WithVersionedTypeNames(
+                JsonDrift.Extract(SourceContext.Default.NestedEnvelopeV1),
+                (nameof(NestedEnvelopeV1), nameof(NestedEnvelopeV2)),
+                (nameof(NestedChildV1), nameof(NestedChildV2))),
+            JsonCompatibility.ReaderBackward);
+
+        Assert.Equal(JsonDriftClassification.Incompatible, report.Outcome);
+        Assert.Contains(report.Changes, change => change.Path == "root.Child.Value");
+        Assert.Throws<JsonDriftCompatibilityException>(() => report.AssertCompatible());
+    }
+
+    [Fact]
     public void CompareFailsClosedForUnsupportedConverterWithoutExecutingIt()
     {
         JsonSerializerOptions options = ReflectionOptions();
@@ -241,7 +370,7 @@ public sealed partial class JsonDriftFoundationTests
         Assert.True(report.IsCompatible);
         Assert.Empty(report.Changes);
 
-        File.WriteAllText(path, "{\"formatVersion\":2}\n", new UTF8Encoding(false));
+        File.WriteAllText(path, "{\"formatVersion\":3}\n", new UTF8Encoding(false));
         InvalidDataException error = Assert.Throws<InvalidDataException>(() =>
             JsonDrift.Compare<SimpleEnvelope>(ReflectionOptions(), path, JsonCompatibility.ReaderBackward));
         Assert.Contains("newer than supported", error.Message, StringComparison.Ordinal);
@@ -260,7 +389,7 @@ public sealed partial class JsonDriftFoundationTests
         AssertReadFailure(directory, "malformed.json", "not-json\n", "Baseline is malformed JSON.");
         AssertReadFailure(directory, "foreign.json", "{\"name\":\"other\"}\n", "Baseline is not a JsonDrift canonical contract: missing formatVersion.");
         AssertReadFailure(directory, "old.json", "{\"formatVersion\":0}\n", "Baseline format version 0 is not supported.");
-        AssertReadFailure(directory, "future.json", "{\"formatVersion\":2}\n", "Baseline format version 2 is newer than supported version 1.");
+        AssertReadFailure(directory, "future.json", "{\"formatVersion\":3}\n", "Baseline format version 3 is newer than supported version 2.");
 
         string deep = new string('[', 12) + new string(']', 12) + "\n";
         string depthPath = Path.Combine(directory.Path, "depth.json");
@@ -299,7 +428,7 @@ public sealed partial class JsonDriftFoundationTests
         AssertReadFailure(
             directory,
             "duplicate-member.json",
-            canonical.Replace("  \"formatVersion\": 1,\n", "  \"formatVersion\": 1,\n  \"formatVersion\": 1,\n", StringComparison.Ordinal),
+            canonical.Replace("  \"formatVersion\": 2,\n", "  \"formatVersion\": 2,\n  \"formatVersion\": 2,\n", StringComparison.Ordinal),
             "Baseline contains duplicate JSON members.");
 
         AssertReadFailure(
@@ -492,6 +621,20 @@ public sealed partial class JsonDriftFoundationTests
         Assert.Equal(message, error.Message);
     }
 
+    private static JsonContract WithVersionedTypeNames(JsonContract contract, params (string Earlier, string Later)[] replacements)
+    {
+        string canonical = contract.CanonicalJson;
+        foreach ((string earlier, string later) in replacements)
+        {
+            canonical = canonical.Replace(earlier, later, StringComparison.Ordinal);
+        }
+
+        using TemporaryDirectory directory = new();
+        string path = Path.Combine(directory.Path, "baseline.json");
+        File.WriteAllText(path, canonical, new UTF8Encoding(false));
+        return JsonBaseline.Read(path);
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public TemporaryDirectory()
@@ -630,8 +773,148 @@ public sealed partial class JsonDriftFoundationTests
         public RecursiveNode? Next { get; set; }
     }
 
+    private sealed class NestedEnvelopeV1
+    {
+        public NestedChildV1 Child { get; set; } = new();
+    }
+
+    private sealed class NestedChildV1
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class NestedEnvelopeV2
+    {
+        public NestedChildV2 Child { get; set; } = new();
+    }
+
+    private sealed class NestedChildV2
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class NestedRequiredEnvelopeV1
+    {
+        public NestedRequiredChildV1 Child { get; set; } = new();
+    }
+
+    private sealed class NestedRequiredChildV1
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class NestedRequiredEnvelopeV2
+    {
+        public NestedRequiredChildV2 Child { get; set; } = new();
+    }
+
+    private sealed class NestedRequiredChildV2
+    {
+        public int Value { get; set; }
+
+        [JsonRequired]
+        public string Added { get; set; } = string.Empty;
+    }
+
+    private sealed class DeepEnvelopeV1
+    {
+        public DeepChildV1 Child { get; set; } = new();
+    }
+
+    private sealed class DeepChildV1
+    {
+        public DeepLeafV1 Leaf { get; set; } = new();
+    }
+
+    private sealed class DeepLeafV1
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class DeepEnvelopeV2
+    {
+        public DeepChildV2 Child { get; set; } = new();
+    }
+
+    private sealed class DeepChildV2
+    {
+        public DeepLeafV2 Leaf { get; set; } = new();
+    }
+
+    private sealed class DeepLeafV2
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class CollectionEnvelopeV1
+    {
+        public List<CollectionItemV1> Items { get; set; } = new();
+    }
+
+    private sealed class CollectionItemV1
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class CollectionEnvelopeV2
+    {
+        public List<CollectionItemV2> Items { get; set; } = new();
+    }
+
+    private sealed class CollectionItemV2
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class DictionaryEnvelopeV1
+    {
+        public Dictionary<string, DictionaryItemV1> Values { get; set; } = new();
+    }
+
+    private sealed class DictionaryItemV1
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class DictionaryEnvelopeV2
+    {
+        public Dictionary<string, DictionaryItemV2> Values { get; set; } = new();
+    }
+
+    private sealed class DictionaryItemV2
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class IntValue
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class ShortValue
+    {
+        public short Value { get; set; }
+    }
+
+    private sealed class UnsignedValue
+    {
+        public uint Value { get; set; }
+    }
+
+    private sealed class DecimalValue
+    {
+        public decimal Value { get; set; }
+    }
+
+    private sealed class IntegerValue
+    {
+        public int Value { get; set; }
+    }
+
     [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonSerializable(typeof(SimpleEnvelope))]
+    [JsonSerializable(typeof(NestedEnvelopeV1))]
+    [JsonSerializable(typeof(NestedEnvelopeV2))]
     private sealed partial class SourceContext : JsonSerializerContext
     {
     }

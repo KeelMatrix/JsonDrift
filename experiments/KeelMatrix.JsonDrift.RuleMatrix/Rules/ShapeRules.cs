@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using KeelMatrix.JsonDrift;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 
@@ -18,6 +19,7 @@ internal static class ShapeRules
 
         AddTokenKind(results, reflection);
         AddCollectionShape(results, reflection);
+        AddPublicComparisonRegressions(results, reflection);
 
         return results;
     }
@@ -137,5 +139,103 @@ internal static class ShapeRules
             "Collection shape change",
             "the contract is unchanged",
             WireProbe.Across(listed, list, list)));
+    }
+
+    private static void AddPublicComparisonRegressions(List<CheckOutcome> results, JsonSerializerOptions reflection)
+    {
+        JsonTypeInfo integer = reflection.GetTypeInfo(typeof(QuantityInt));
+        JsonTypeInfo text = reflection.GetTypeInfo(typeof(QuantityString));
+        JsonDriftReport tokenReport = JsonDrift.Compare(
+            text,
+            JsonDrift.Extract(integer),
+            JsonCompatibility.ReaderBackward);
+
+        JsonDriftReport scalarReport = JsonDrift.Compare(
+            reflection.GetTypeInfo(typeof(Guid)),
+            JsonDrift.Extract(reflection.GetTypeInfo(typeof(DateTime))),
+            JsonCompatibility.ReaderBackward);
+
+        bool tokenAssertionFailed = AssertNotCompatible(tokenReport);
+        bool scalarAssertionFailed = AssertNotCompatible(scalarReport);
+        results.Add(Check.Assert(
+            "R06.token-kind.public-comparison",
+            "Shipping comparison semantics",
+            "the public comparison and assertion reject a root numeric-to-string token change and fail closed for an unclassified string scalar transition",
+            "root number-to-string=Incompatible, root scalar transition=Unsupported, assertions=throw",
+            $"root number-to-string={tokenReport.Outcome}; root scalar transition={scalarReport.Outcome}; assertions=throw({tokenAssertionFailed && scalarAssertionFailed})",
+            $"tokenChanges={tokenReport.Changes.Count}; scalarRule={string.Join(',', scalarReport.Changes.Select(static change => change.RuleId))}",
+            tokenReport.Outcome == JsonDriftClassification.Incompatible &&
+            scalarReport.Outcome == JsonDriftClassification.Unsupported &&
+            tokenAssertionFailed &&
+            scalarAssertionFailed));
+
+        JsonTypeInfo shortType = reflection.GetTypeInfo(typeof(QuantityShort));
+        JsonTypeInfo unsignedType = reflection.GetTypeInfo(typeof(QuantityUnsigned));
+        JsonTypeInfo decimalType = reflection.GetTypeInfo(typeof(QuantityDecimal));
+        JsonDriftReport intToShort = JsonDrift.Compare(shortType, JsonDrift.Extract(integer), JsonCompatibility.ReaderBackward);
+        JsonDriftReport intToUnsigned = JsonDrift.Compare(unsignedType, JsonDrift.Extract(integer), JsonCompatibility.ReaderBackward);
+        JsonDriftReport decimalToInt = JsonDrift.Compare(integer, JsonDrift.Extract(decimalType), JsonCompatibility.ReaderBackward);
+
+        ReadOutcome intToShortWire = WireProbe.Across(new QuantityInt { Quantity = 40_000 }, integer, shortType);
+        ReadOutcome intToUnsignedWire = WireProbe.Across(new QuantityInt { Quantity = -1 }, integer, unsignedType);
+        ReadOutcome decimalToIntWire = WireProbe.Across(new QuantityDecimal { Quantity = 1.5m }, decimalType, integer);
+        bool numericAssertionsFailed = AssertNotCompatible(intToShort) &&
+            AssertNotCompatible(intToUnsigned) &&
+            AssertNotCompatible(decimalToInt);
+        results.Add(Check.Assert(
+            "R06.token-kind.numeric-boundaries.public-comparison",
+            "Shipping comparison semantics",
+            "boundary-valued serializer witnesses agree with public comparison for int-to-short, int-to-uint, and decimal-to-int",
+            "all three wire probes reject, all three reports=Incompatible, assertions=throw",
+            $"wire=({Check.Describe(intToShortWire)} | {Check.Describe(intToUnsignedWire)} | {Check.Describe(decimalToIntWire)}); reports=({intToShort.Outcome}, {intToUnsigned.Outcome}, {decimalToInt.Outcome}); assertions=throw({numericAssertionsFailed})",
+            "the reported rule is numeric-narrowing for each counterexample",
+            intToShortWire.Fault is null && !intToShortWire.Lossless &&
+            intToUnsignedWire.Fault is null && !intToUnsignedWire.Lossless &&
+            decimalToIntWire.Fault is null && !decimalToIntWire.Lossless &&
+            intToShort.Outcome == JsonDriftClassification.Incompatible &&
+            intToUnsigned.Outcome == JsonDriftClassification.Incompatible &&
+            decimalToInt.Outcome == JsonDriftClassification.Incompatible &&
+            numericAssertionsFailed));
+
+        JsonDriftReport nested = JsonDrift.Compare(
+            reflection.GetTypeInfo(typeof(NestedEnvelopeV2)),
+            JsonDrift.Extract(reflection.GetTypeInfo(typeof(NestedEnvelopeV1))),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftReport collection = JsonDrift.Compare(
+            reflection.GetTypeInfo(typeof(NestedCollectionEnvelopeV2)),
+            JsonDrift.Extract(reflection.GetTypeInfo(typeof(NestedCollectionEnvelopeV1))),
+            JsonCompatibility.ReaderBackward);
+        JsonDriftReport dictionary = JsonDrift.Compare(
+            reflection.GetTypeInfo(typeof(NestedDictionaryEnvelopeV2)),
+            JsonDrift.Extract(reflection.GetTypeInfo(typeof(NestedDictionaryEnvelopeV1))),
+            JsonCompatibility.ReaderBackward);
+        bool nestedAssertionsFailed = AssertNotCompatible(nested) &&
+            AssertNotCompatible(collection) &&
+            AssertNotCompatible(dictionary);
+
+        results.Add(Check.Assert(
+            "R07.shape.nested-contract.public-comparison",
+            "Shipping comparison semantics",
+            "nested object, collection element, and dictionary value contract changes are compared through the public API",
+            "all three reports=Incompatible, assertions=throw",
+            $"reports=({nested.Outcome}, {collection.Outcome}, {dictionary.Outcome}); assertions=throw({nestedAssertionsFailed})",
+            $"paths=({string.Join(',', nested.Changes.Select(static change => change.Path))}; {string.Join(',', collection.Changes.Select(static change => change.Path))}; {string.Join(',', dictionary.Changes.Select(static change => change.Path))})",
+            nested.Outcome == JsonDriftClassification.Incompatible &&
+            collection.Outcome == JsonDriftClassification.Incompatible &&
+            dictionary.Outcome == JsonDriftClassification.Incompatible &&
+            nestedAssertionsFailed));
+    }
+
+    private static bool AssertNotCompatible(JsonDriftReport report)
+    {
+        try
+        {
+            report.AssertCompatible();
+            return false;
+        }
+        catch (JsonDriftCompatibilityException)
+        {
+            return true;
+        }
     }
 }

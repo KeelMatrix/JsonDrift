@@ -15,7 +15,7 @@ namespace KeelMatrix.JsonDrift.Internal;
 internal static class ContractCanonicalizer
 {
     /// <summary>The canonical baseline document format version.</summary>
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
@@ -65,9 +65,9 @@ internal static class ContractCanonicalizer
     }
 
     /// <summary>
-    /// Describes one recorded node. Object contracts record their full member content when
-    /// <paramref name="includeMembers"/> is true and a member-name summary otherwise, so a nested shape stays
-    /// readable while the root and registered derived types record the complete member metadata.
+    /// Describes one recorded node. Every reachable child node is described with its complete metadata unless
+    /// the traversal recorded a reference, so nested objects, collection elements, and dictionary values remain
+    /// comparable while recursive graphs still terminate.
     /// </summary>
     private static JsonObject DescribeNode(RecordedNode node, bool includeMembers)
     {
@@ -128,27 +128,33 @@ internal static class ContractCanonicalizer
                 break;
 
             case RecordedNodeKind.Enumerable:
-                if (EdgeTypeName(node, MetadataSourceKind.EnumerableElementTypes) is string elementType)
+                if (EdgeNode(node, MetadataSourceKind.EnumerableElementTypes) is RecordedNode element)
                 {
-                    described["elementType"] = elementType;
+                    described["elementType"] = element.TypeName;
+                    described["element"] = DescribeNode(element, includeMembers: true);
                 }
 
                 break;
 
             case RecordedNodeKind.Dictionary:
-                if (EdgeTypeName(node, MetadataSourceKind.DictionaryKeyTypes) is string keyType)
+                if (EdgeNode(node, MetadataSourceKind.DictionaryKeyTypes) is RecordedNode key)
                 {
-                    described["keyType"] = keyType;
+                    described["keyType"] = key.TypeName;
+                    described["key"] = DescribeNode(key, includeMembers: true);
                 }
 
-                if (EdgeTypeName(node, MetadataSourceKind.DictionaryValueTypes) is string valueType)
+                if (EdgeNode(node, MetadataSourceKind.DictionaryValueTypes) is RecordedNode value)
                 {
-                    described["valueType"] = valueType;
+                    described["valueType"] = value.TypeName;
+                    described["value"] = DescribeNode(value, includeMembers: true);
                 }
 
                 break;
 
             case RecordedNodeKind.Scalar:
+                described["tokenKind"] = node.EnumWire is { Unresolved: false, WritesStringTokens: true }
+                    ? "string"
+                    : TypeShapes.TokenKind(node.Type ?? typeof(object));
                 if (node.EnumWire is RecordedEnumWire wire)
                 {
                     described["enumWire"] = DescribeEnumWire(wire);
@@ -210,7 +216,7 @@ internal static class ContractCanonicalizer
         // member has no nested contract to describe, so only a classifiable complex shape is recorded.
         if (member.Included && !member.MetadataNotResolved && IsComplexShape(member.Shape))
         {
-            described["shape"] = DescribeNode(member.Shape, includeMembers: false);
+            described["shape"] = DescribeNode(member.Shape, includeMembers: true);
         }
 
         return described;
@@ -314,13 +320,13 @@ internal static class ContractCanonicalizer
         RecordedNodeKind.Unavailable => false,
     };
 
-    private static string? EdgeTypeName(RecordedNode node, MetadataSourceKind source)
+    private static RecordedNode? EdgeNode(RecordedNode node, MetadataSourceKind source)
     {
         foreach (RecordedEdge edge in node.Edges)
         {
             if (edge.Source == source)
             {
-                return edge.Node.TypeName;
+                return edge.Node;
             }
         }
 

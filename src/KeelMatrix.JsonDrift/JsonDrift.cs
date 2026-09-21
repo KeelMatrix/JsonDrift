@@ -4,7 +4,12 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace KeelMatrix.JsonDrift;
 
-/// <summary>Extracts a canonical structural contract from effective System.Text.Json metadata.</summary>
+/// <summary>Extracts and compares canonical structural contracts from effective System.Text.Json metadata.</summary>
+/// <remarks>
+/// Comparisons use the complete bounded nested contract graph. Root scalar token changes and proven numeric
+/// range, signedness, fractional, or precision-loss changes are classified explicitly; scalar or numeric
+/// transitions without a sound rule are unsupported.
+/// </remarks>
 public static class JsonDrift
 {
     /// <summary>Extracts a contract from an already selected <see cref="JsonTypeInfo"/>.</summary>
