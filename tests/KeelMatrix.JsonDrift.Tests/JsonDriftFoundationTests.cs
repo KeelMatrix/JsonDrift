@@ -10,8 +10,13 @@ namespace KeelMatrix.JsonDrift.Tests;
 public sealed partial class JsonDriftFoundationTests
 {
     private static readonly string[] CompleteChangePaths = { "root.Note", "root.Required" };
-    private static readonly string[] MultiChangePaths = { "root.Carrier", "root.Secret" };
-    private static readonly string[] MultiChangeRules = { "R12.binding.constructor-parameter-added", "R09.ignore.member-included" };
+    private static readonly string[] MultiChangePaths = { "root.Carrier", "root.Secret", "root.Secret" };
+    private static readonly string[] MultiChangeRules =
+    {
+        "R12.binding.constructor-parameter-added",
+        "R02.property-materialization",
+        "R09.ignore.member-included",
+    };
 
     [Fact]
     public void ExtractsFromReflectionOptionsAndRecordsSupportedContract()

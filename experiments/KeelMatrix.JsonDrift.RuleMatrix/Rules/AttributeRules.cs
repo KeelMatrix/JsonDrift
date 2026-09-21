@@ -211,10 +211,15 @@ internal static class AttributeRules
         bool bindingDiffers = withoutRead.ReboundedDocument == "{\"Quantity\":1}" &&
             withRead.ReboundedDocument == "{\"Quantity\":7}";
         bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
-        bool withoutSupported = ContractDocument.OverallSupported(withoutDocument);
+        bool withoutUnsupportedForMaterialization =
+            !ContractDocument.OverallSupported(withoutDocument) &&
+            string.Equals(
+                ContractDocument.RootRule(withoutDocument),
+                RuleIds.UnsupportedMemberMaterializationUnproven,
+                StringComparison.Ordinal);
         bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
         bool assertionFailed = AssertUnsupported(id, withAttribute, reason);
-        bool passed = recorded && denied && bindingDiffers && documentDiffers && withoutSupported &&
+        bool passed = recorded && denied && bindingDiffers && documentDiffers && withoutUnsupportedForMaterialization &&
             withUnsupported && assertionFailed && withoutRead.Fault is null && withRead.Fault is null;
 
         return Bind(
@@ -226,7 +231,8 @@ internal static class AttributeRules
                 passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
                     $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withUnsupported ? "Unsupported" : "Supported")}, overall={(withUnsupported ? "Unsupported" : "Supported")}",
                 $"recorded={recorded}; bindingDiffers={bindingDiffers}; withoutRead={Check.Describe(withoutRead)}; " +
-                $"withRead={Check.Describe(withRead)}; documentDiffers={documentDiffers}; withoutSupported={withoutSupported}; " +
+                $"withRead={Check.Describe(withRead)}; documentDiffers={documentDiffers}; " +
+                $"withoutUnsupportedForMaterialization={withoutUnsupportedForMaterialization}; " +
                 $"withUnsupported={withUnsupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
                 $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionFailed={assertionFailed}",
                 passed),

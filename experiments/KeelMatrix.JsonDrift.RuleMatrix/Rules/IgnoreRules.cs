@@ -38,13 +38,18 @@ internal static class IgnoreRules
             included,
             JsonDrift.Extract(ignored),
             JsonCompatibility.ReaderBackward);
-        JsonDriftChange? includedChange = includedReport.Changes.SingleOrDefault();
+        JsonDriftChange? includedChange = includedReport.Changes.SingleOrDefault(static change =>
+            change.RuleId == "R09.ignore.member-included");
+        JsonDriftChange? materializationChange = includedReport.Changes.SingleOrDefault(static change =>
+            change.RuleId == "R02.property-materialization");
         bool includedReportMatches =
             includedReport.Outcome == JsonDriftClassification.Compatible &&
             includedChange is not null &&
             includedChange.Path == "root.Secret" &&
-            includedChange.RuleId == "R09.ignore.member-included" &&
-            includedChange.Classification == JsonDriftClassification.Compatible;
+            includedChange.Classification == JsonDriftClassification.Compatible &&
+            materializationChange is not null &&
+            materializationChange.Path == "root.Secret" &&
+            materializationChange.Classification == JsonDriftClassification.Compatible;
 
         results.Add(Check.Assert(
             "R09.ignore.member-included",

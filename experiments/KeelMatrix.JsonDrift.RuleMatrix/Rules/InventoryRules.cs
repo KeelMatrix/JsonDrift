@@ -43,6 +43,8 @@ internal static class InventoryRules
             yield return check;
         }
 
+        yield return ComparisonFactRuleCheck(checks, lines);
+
         foreach (CheckOutcome check in AllowlistChecks(lines))
         {
             yield return check;
@@ -52,6 +54,79 @@ internal static class InventoryRules
         yield return AttributeAllowlistCheck(lines);
         yield return AttributeDeclarationCoverageCheck(lines);
         yield return ConverterConfigurationAllowlistCheck(lines);
+    }
+
+    private static CheckOutcome ComparisonFactRuleCheck(IReadOnlyList<CheckOutcome> checks, string[] lines)
+    {
+        string[][] documented = DocumentationTables.ReadTable(lines, DocumentationTables.FactRuleHeading)
+            .Where(static cells => cells.Length >= 6 && !string.Equals(Clean(cells[0]), "Fact kind", StringComparison.Ordinal))
+            .ToArray();
+        ComparisonFactRule[] catalogue = ComparisonFactRules.Entries.ToArray();
+        IReadOnlyList<string> coverageErrors = ComparisonFactRules.ValidateCoverage();
+        string[] duplicateRows = documented
+            .GroupBy(static cells => Clean(cells[0]), StringComparer.Ordinal)
+            .Where(static group => group.Count() != 1)
+            .Select(static group => group.Key)
+            .ToArray();
+        string[] missingRows = catalogue
+            .Where(entry => !documented.Any(cells => string.Equals(Clean(cells[0]), entry.FactKind, StringComparison.Ordinal)))
+            .Select(static entry => entry.FactKind)
+            .ToArray();
+        string[] unknownRows = documented
+            .Where(cells => !catalogue.Any(entry => string.Equals(entry.FactKind, Clean(cells[0]), StringComparison.Ordinal)))
+            .Select(static cells => Clean(cells[0]))
+            .ToArray();
+        string[] missingMatrixWitnesses = catalogue
+            .Where(static entry => entry.Witness is not null)
+            .SelectMany(static entry => entry.Witness!.Split(", ", StringSplitOptions.RemoveEmptyEntries))
+            .Where(static witness => witness.StartsWith("matrix:", StringComparison.Ordinal))
+            .Select(static witness => witness["matrix:".Length..])
+            .Where(id => !checks.Any(check => string.Equals(check.Id, id, StringComparison.Ordinal)))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
+        string[] mismatches = catalogue
+            .Select(entry =>
+            {
+                string[]? row = documented.FirstOrDefault(cells =>
+                    string.Equals(Clean(cells[0]), entry.FactKind, StringComparison.Ordinal));
+                if (row is null)
+                {
+                    return null;
+                }
+
+                string[] expected =
+                {
+                    entry.FactKind,
+                    string.Join(", ", entry.Properties.Select(static property => property.Id)),
+                    entry.ComparedRule ?? "Non-contract",
+                    entry.Witness ?? "Not applicable",
+                    entry.VerdictWhenRuleDoesNotApply,
+                    entry.NonContractReason ?? "Not applicable",
+                };
+                string[] actual = row.Take(6).Select(Clean).ToArray();
+                return expected.SequenceEqual(actual, StringComparer.Ordinal)
+                    ? null
+                    : entry.FactKind;
+            })
+            .Where(static value => value is not null)
+            .Select(static value => value!)
+            .ToArray();
+        bool passed = coverageErrors.Count == 0 && duplicateRows.Length == 0 && missingRows.Length == 0 &&
+            unknownRows.Length == 0 && mismatches.Length == 0 && missingMatrixWitnesses.Length == 0;
+
+        return Check.Assert(
+            "D06.comparison-facts.coverage",
+            "Recorded-fact comparison coverage",
+            "every fact populated by the metadata walk is assigned to a measured comparison rule or an explicit non-contract reason, and the rule table is documented exactly",
+            "recorded=catalogued=documented, rule-gaps=Unsupported",
+            passed ? "recorded=catalogued=documented, rule-gaps=Unsupported" : "recorded-fact coverage mismatch",
+            $"properties={catalogue.SelectMany(static entry => entry.Properties).Count()}; factKinds={catalogue.Length}; " +
+            $"coverageErrors=[{string.Join(", ", coverageErrors)}]; duplicateRows=[{string.Join(", ", duplicateRows)}]; " +
+            $"missingRows=[{string.Join(", ", missingRows)}]; unknownRows=[{string.Join(", ", unknownRows)}]; " +
+            $"mismatches=[{string.Join(", ", mismatches)}]; " +
+            $"missingMatrixWitnesses=[{string.Join(", ", missingMatrixWitnesses)}]",
+            passed);
     }
 
     /// <summary>
@@ -249,7 +324,7 @@ internal static class InventoryRules
             passed);
     }
 
-    private static string Clean(string value) => value.Trim().Trim('`').Trim();
+    private static string Clean(string value) => value.Trim().Replace("`", string.Empty, StringComparison.Ordinal).Trim();
 
     private sealed record DeclarationCoverageRow(string TypeName, string Status, string Evidence);
 

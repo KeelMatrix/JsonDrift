@@ -37,6 +37,16 @@ internal enum RecordedNodeUnavailableReason
     TraversalBudget,
 }
 
+/// <summary>The wire-preservation behavior established for an enumerable materializer.</summary>
+internal enum RecordedCollectionSemantics
+{
+    /// <summary>The materializer preserves every array item in its original order, including duplicates.</summary>
+    OrderedWithMultiplicity,
+
+    /// <summary>No committed wire witness establishes preservation of order and multiplicity.</summary>
+    Unclassified,
+}
+
 /// <summary>One converter the traversal recorded, with the source and the path that declared or registered it.</summary>
 internal sealed record RecordedConverterFact(
     MetadataSourceKind Source,
@@ -84,6 +94,8 @@ internal sealed record RecordedMember(
     bool GetNullable,
     bool SetNullable,
     bool ExtensionData,
+    bool CanSerialize,
+    bool CanDeserialize,
     RecordedEnumWire? EnumWire,
     IReadOnlyList<RecordedConverterFact> ConverterFacts,
     IReadOnlyList<RecordedAttributeFact> DeclaredAttributes,
@@ -120,6 +132,9 @@ internal sealed class RecordedNode
     /// <summary>The type this node records, when metadata for it exists.</summary>
     public Type? Type { get; init; }
 
+    /// <summary>Whether this exact value slot accepts the JSON null token.</summary>
+    public bool AcceptsNull { get; init; }
+
     /// <summary>The recorded node kind.</summary>
     public RecordedNodeKind Kind { get; set; }
 
@@ -149,6 +164,9 @@ internal sealed class RecordedNode
 
     /// <summary>True when the element type of an enumerable contract was recorded.</summary>
     public bool ElementTypeRecorded { get; set; }
+
+    /// <summary>The measured ordering and multiplicity behavior of an enumerable materializer.</summary>
+    public RecordedCollectionSemantics? CollectionSemantics { get; set; }
 
     /// <summary>True when the key type of a dictionary contract was recorded.</summary>
     public bool KeyTypeRecorded { get; set; }

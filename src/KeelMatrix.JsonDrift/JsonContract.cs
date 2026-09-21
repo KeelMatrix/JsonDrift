@@ -20,8 +20,11 @@ public sealed class JsonContract
     private static readonly string[] TopLevelRequired = { "formatVersion", "options", "root", "overallSupported" };
     private static readonly string[] DiscriminatorProperty = { "discriminator" };
     private static readonly string[] PolymorphismProperty = { "polymorphism" };
+    private static readonly string[] ObjectMembersProperties = { "extensionData", "members" };
+    private static readonly string[] ObjectMemberNamesProperties = { "extensionData", "memberNames" };
     private static readonly string[] ElementTypeProperty = { "elementType" };
     private static readonly string[] ElementContractProperty = { "element" };
+    private static readonly string[] CollectionSemanticsProperty = { "collectionSemantics" };
     private static readonly string[] DictionaryTypeProperties = { "keyType", "valueType" };
     private static readonly string[] DictionaryContractProperties = { "key", "value" };
     private static readonly string[] ScalarTokenKindProperty = { "tokenKind" };
@@ -154,6 +157,7 @@ public sealed class JsonContract
         }
 
         bool rootSupported = ValidateNode(contractRoot, includeMembers: true, "root", discriminatorRequired: false);
+        ValidateReferenceGraph(contractRoot);
 
         JsonElement supported = root.GetProperty("overallSupported");
         if (supported.ValueKind != JsonValueKind.True && supported.ValueKind != JsonValueKind.False)
@@ -214,7 +218,7 @@ public sealed class JsonContract
             throw new InvalidDataException($"Baseline {context} must be an object.");
         }
 
-        string[] commonRequired = { "typeName", "kind", "reachedBy", "path", "rule", "supported", "declaredAttributes" };
+        string[] commonRequired = { "typeName", "kind", "acceptsNull", "reachedBy", "path", "rule", "supported", "declaredAttributes" };
         string[] commonOptional = { "reason" };
         ValidateRequiredProperties(node, commonRequired, context);
 
@@ -232,6 +236,7 @@ public sealed class JsonContract
         string reachedBy = RequireString(node, "reachedBy", context, allowEmpty: false);
         RequireString(node, "path", context, allowEmpty: false);
         string rule = RequireString(node, "rule", context, allowEmpty: false);
+        RequireBoolean(node, "acceptsNull", context);
 
         if (!MetadataSourceRules.All.Select(MetadataSourceRules.Id).Contains(reachedBy, StringComparer.Ordinal))
         {
@@ -263,8 +268,8 @@ public sealed class JsonContract
             case "object":
                 string[] objectOptional = nodeOptional.Concat(PolymorphismProperty).ToArray();
                 string[] objectRequired = includeMembers
-                    ? new[] { "typeName", "kind", "reachedBy", "path", "rule", "supported", "declaredAttributes", "extensionData", "members" }
-                    : new[] { "typeName", "kind", "reachedBy", "path", "rule", "supported", "declaredAttributes", "extensionData", "memberNames" };
+                    ? commonRequired.Concat(ObjectMembersProperties).ToArray()
+                    : commonRequired.Concat(ObjectMemberNamesProperties).ToArray();
                 ValidateObjectProperties(node, objectRequired, objectOptional, context);
                 RequireBoolean(node, "extensionData", context);
                 if (includeMembers)
@@ -286,9 +291,18 @@ public sealed class JsonContract
             case "array":
                 ValidateObjectProperties(
                     node,
-                    supported ? commonRequired.Concat(ElementTypeProperty).Concat(ElementContractProperty).ToArray() : commonRequired,
-                    supported ? nodeOptional.Concat(ElementContractProperty).ToArray() : nodeOptional.Concat(ElementTypeProperty).Concat(ElementContractProperty).ToArray(),
+                    supported
+                        ? commonRequired.Concat(CollectionSemanticsProperty).Concat(ElementTypeProperty).Concat(ElementContractProperty).ToArray()
+                        : commonRequired.Concat(CollectionSemanticsProperty).ToArray(),
+                    supported
+                        ? nodeOptional.Concat(ElementContractProperty).ToArray()
+                        : nodeOptional.Concat(ElementTypeProperty).Concat(ElementContractProperty).ToArray(),
                     context);
+                string collectionSemantics = RequireString(node, "collectionSemantics", context, allowEmpty: false);
+                if (collectionSemantics is not ("ordered-with-multiplicity" or "unclassified"))
+                {
+                    throw new InvalidDataException($"Baseline {context} array has an unknown collectionSemantics value.");
+                }
                 if (node.TryGetProperty("elementType", out _))
                 {
                     RequireString(node, "elementType", context, allowEmpty: false);
@@ -375,6 +389,88 @@ public sealed class JsonContract
         return allSupported;
     }
 
+    private static void ValidateReferenceGraph(JsonElement root)
+    {
+        var nodes = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var references = new List<JsonElement>();
+        CollectReferenceGraph(root, nodes, references);
+
+        foreach (JsonElement reference in references)
+        {
+            string sourcePath = reference.GetProperty("path").GetString()!;
+            string targetPath = reference.GetProperty("reference").GetString()!;
+            var visited = new HashSet<string>(StringComparer.Ordinal) { sourcePath };
+
+            while (true)
+            {
+                if (!nodes.TryGetValue(targetPath, out JsonElement target))
+                {
+                    throw new InvalidDataException(
+                        $"Baseline reference '{sourcePath}' targets missing node '{targetPath}'.");
+                }
+
+                string targetKind = target.GetProperty("kind").GetString()!;
+                if (!string.Equals(targetKind, "reference", StringComparison.Ordinal))
+                {
+                    break;
+                }
+
+                if (!visited.Add(targetPath))
+                {
+                    throw new InvalidDataException(
+                        $"Baseline reference '{sourcePath}' is part of a reference-only cycle.");
+                }
+
+                targetPath = target.GetProperty("reference").GetString()!;
+            }
+        }
+    }
+
+    private static void CollectReferenceGraph(
+        JsonElement node,
+        IDictionary<string, JsonElement> nodes,
+        ICollection<JsonElement> references)
+    {
+        string path = node.GetProperty("path").GetString()!;
+        if (!nodes.TryAdd(path, node))
+        {
+            throw new InvalidDataException($"Baseline contract graph contains ambiguous path '{path}'.");
+        }
+
+        if (string.Equals(node.GetProperty("kind").GetString(), "reference", StringComparison.Ordinal))
+        {
+            references.Add(node);
+            return;
+        }
+
+        if (node.TryGetProperty("members", out JsonElement members))
+        {
+            foreach (JsonElement member in members.EnumerateArray())
+            {
+                if (member.TryGetProperty("shape", out JsonElement shape))
+                {
+                    CollectReferenceGraph(shape, nodes, references);
+                }
+            }
+        }
+
+        foreach (string childProperty in new[] { "element", "key", "value" })
+        {
+            if (node.TryGetProperty(childProperty, out JsonElement child))
+            {
+                CollectReferenceGraph(child, nodes, references);
+            }
+        }
+
+        if (node.TryGetProperty("polymorphism", out JsonElement polymorphism))
+        {
+            foreach (JsonElement derived in polymorphism.GetProperty("derivedTypes").EnumerateArray())
+            {
+                CollectReferenceGraph(derived, nodes, references);
+            }
+        }
+    }
+
     private static bool ValidateMembers(JsonElement members, string context)
     {
         if (members.ValueKind != JsonValueKind.Array)
@@ -400,7 +496,7 @@ public sealed class JsonContract
             string[] required =
             {
                 "name", "declaredType", "tokenKind", "required", "getNullable", "setNullable", "extensionData",
-                "declaredAttributes", "rule", "supported",
+                "canSerialize", "canDeserialize", "declaredAttributes", "rule", "supported",
             };
             ValidateObjectProperties(member, required, MemberOptional, $"{context} member");
             RequireString(member, "declaredType", context, allowEmpty: false);
@@ -414,6 +510,8 @@ public sealed class JsonContract
             RequireBoolean(member, "getNullable", context);
             RequireBoolean(member, "setNullable", context);
             RequireBoolean(member, "extensionData", context);
+            RequireBoolean(member, "canSerialize", context);
+            RequireBoolean(member, "canDeserialize", context);
             bool included = true;
             if (member.TryGetProperty("included", out JsonElement includedElement))
             {

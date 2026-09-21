@@ -16,8 +16,11 @@ KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effec
 - Baselines use canonical JSON format version `2`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
 - Canonical nodes retain complete nested object, collection-element, and dictionary key/value contracts;
-  repeated types use bounded references. Root scalar token changes are incompatible, proven numeric range or
-  precision loss is incompatible, and unclassified scalar or numeric transitions are unsupported.
+  repeated types use validated bounded references. Nullable value slots are preserved at roots and nested
+  edges; collection compatibility is limited to materializers proven to preserve order and multiplicity;
+  member materialization and enum integer-token acceptance are compared explicitly. Root scalar token changes
+  are incompatible, proven numeric range or precision loss is incompatible, and unclassified transitions are
+  unsupported.
 - `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
   incompatible or unsupported result.

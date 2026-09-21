@@ -54,8 +54,11 @@ unallowlisted serialization attribute or value, including an unmeasured rename, 
 Reading never rewrites a baseline.
 
 Canonical baseline documents use `formatVersion: 2`. The format records complete nested object, collection
-element, and dictionary key/value contract nodes, while repeated types use bounded references so recursive
-contracts terminate. Scalar nodes record their JSON token kind. Malformed, foreign, unsupported, future,
+element, and dictionary key/value contract nodes, while repeated types use validated bounded references so
+recursive contracts terminate. Nullable value slots, member materialization capability, collection order and
+multiplicity semantics, and enum integer-token acceptance are recorded and compared. Collection compatibility
+is limited to measured materializers such as `List<T>` and arrays; other enumerable materializers are
+unsupported. Scalar nodes record their JSON token kind. Malformed, foreign, unsupported, future,
 oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated,
 stable in ordering, and contain no timestamps or host paths.
 

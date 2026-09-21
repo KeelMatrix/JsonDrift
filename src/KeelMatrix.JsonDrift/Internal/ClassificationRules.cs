@@ -34,6 +34,8 @@ internal static class RuleIds
     public const string UnsupportedOptionUnlisted = "unsupported.option-unlisted";
     public const string UnsupportedAttributeUnlisted = "unsupported.attribute-unlisted";
     public const string UnsupportedConverterConfigurationUnlisted = "unsupported.converter-configuration-unlisted";
+    public const string UnsupportedCollectionSemanticsUnproven = "unsupported.collection-semantics-unproven";
+    public const string UnsupportedMemberMaterializationUnproven = "unsupported.member-materialization-unproven";
 }
 
 /// <summary>One documented classification rule.</summary>
@@ -137,6 +139,14 @@ internal static class RuleCatalog
             RuleIds.UnsupportedConverterConfigurationUnlisted,
             false,
             "an allowlisted framework enum converter produced an observable configuration outside the measured converter-configuration allowlist"),
+        new(
+            RuleIds.UnsupportedCollectionSemanticsUnproven,
+            false,
+            "the enumerable materializer has no measured witness that it preserves item order and multiplicity"),
+        new(
+            RuleIds.UnsupportedMemberMaterializationUnproven,
+            false,
+            "a serialized member has no structural setter or constructor binding that can materialize its value"),
     };
 
     public static bool Contains(string ruleId) =>
@@ -179,6 +189,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedOptionUnlisted,
             RuleIds.UnsupportedAttributeUnlisted,
             RuleIds.UnsupportedConverterConfigurationUnlisted,
+            RuleIds.UnsupportedMemberMaterializationUnproven,
         },
         RecordedNodeKind.Enumerable => new[]
         {
@@ -190,6 +201,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedOptionUnlisted,
             RuleIds.UnsupportedAttributeUnlisted,
             RuleIds.UnsupportedConverterConfigurationUnlisted,
+            RuleIds.UnsupportedCollectionSemanticsUnproven,
         },
         RecordedNodeKind.Dictionary => new[]
         {

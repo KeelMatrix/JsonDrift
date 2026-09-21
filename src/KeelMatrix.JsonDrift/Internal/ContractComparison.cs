@@ -25,6 +25,7 @@ internal static class ContractComparison
     private const string EnumRename = "R08.enum.member-rename";
     private const string EnumRepresentation = "R08.enum.number-to-string";
     private const string EnumNaming = "R08.enum.naming-policy";
+    private const string EnumIntegerTokenAcceptance = "R08.enum.integer-token-acceptance";
     private const string IgnoreExcluded = "R09.ignore.condition-when-writing-null";
     private const string IgnoreIncluded = "R09.ignore.member-included";
     private const string Discriminator = "R10.polymorphism.discriminator-value-renamed";
@@ -35,7 +36,11 @@ internal static class ContractComparison
     private const string ConstructorParameterAddedEnforced = "R12.binding.constructor-parameter-added.enforced";
     private const string ConstructorParameterDefaulted = "R12.binding.constructor-parameter-defaulted";
     private const string ConstructorParameterRenamed = "R12.binding.constructor-parameter-renamed";
+    private const string ConstructorBindingAdded = "R12.binding.constructor-materializer-added";
     private const string ContextOptions = "R13.source-generation.context-options";
+    private const string CollectionPreservation = "R07.shape.collection-preservation";
+    private const string MemberMaterialization = "R02.property-materialization";
+    private const string ComparisonRuleGap = "unsupported.comparison-rule-gap";
 
     private sealed class ComparisonContext
     {
@@ -277,31 +282,36 @@ internal static class ContractComparison
         string path,
         ComparisonContext context)
     {
-        string pair = $"{NodePath(earlier)}\u001f{NodePath(later)}";
-        if (!context.ComparedNodePairs.Add(pair))
-        {
-            return;
-        }
-
         string earlierKind = earlier.GetProperty("kind").GetString()!;
         string laterKind = later.GetProperty("kind").GetString()!;
+
+        // Null acceptance belongs to the value slot that reached the node. Compare it before resolving a
+        // reference because two edges can point at the same concrete metadata with different slot facts.
+        CompareNodeNullAcceptance(earlier, later, path, context.Changes);
 
         bool earlierReference = string.Equals(earlierKind, "reference", StringComparison.Ordinal);
         bool laterReference = string.Equals(laterKind, "reference", StringComparison.Ordinal);
         if (earlierReference || laterReference)
         {
-            JsonElement earlierTarget = earlierReference
+            earlier = earlierReference
                 ? ResolveReference(earlier, context.EarlierNodes, path, context.Changes)
                 : earlier;
-            JsonElement laterTarget = laterReference
+            later = laterReference
                 ? ResolveReference(later, context.LaterNodes, path, context.Changes)
                 : later;
 
-            if (earlierTarget.ValueKind != JsonValueKind.Undefined && laterTarget.ValueKind != JsonValueKind.Undefined)
+            if (earlier.ValueKind == JsonValueKind.Undefined || later.ValueKind == JsonValueKind.Undefined)
             {
-                CompareNode(earlierTarget, laterTarget, path, context);
+                return;
             }
 
+            earlierKind = earlier.GetProperty("kind").GetString()!;
+            laterKind = later.GetProperty("kind").GetString()!;
+        }
+
+        string pair = $"{NodePath(earlier)}\u001f{NodePath(later)}";
+        if (!context.ComparedNodePairs.Add(pair))
+        {
             return;
         }
 
@@ -317,6 +327,7 @@ internal static class ContractComparison
                 CompareObject(earlier, later, path, context);
                 break;
             case "array":
+                CompareCollectionSemantics(earlier, later, path, context.Changes);
                 CompareNestedNodeField(earlier, later, "element", $"{path}[]", context);
                 break;
             case "dictionary":
@@ -336,10 +347,28 @@ internal static class ContractComparison
         string path,
         ChangeSet changes)
     {
+        string sourcePath = reference.GetProperty("path").GetString()!;
         string targetPath = reference.GetProperty("reference").GetString()!;
-        if (nodes.TryGetValue(targetPath, out JsonElement target))
+        var visited = new HashSet<string>(StringComparer.Ordinal) { sourcePath };
+
+        while (nodes.TryGetValue(targetPath, out JsonElement target))
         {
-            return target;
+            if (!string.Equals(target.GetProperty("kind").GetString(), "reference", StringComparison.Ordinal))
+            {
+                return target;
+            }
+
+            if (!visited.Add(targetPath))
+            {
+                changes.Add(
+                    path,
+                    JsonDriftClassification.Unsupported,
+                    ComparisonRuleGap,
+                    $"the reference from '{sourcePath}' does not resolve to concrete contract metadata");
+                return default;
+            }
+
+            targetPath = target.GetProperty("reference").GetString()!;
         }
 
         changes.Add(
@@ -348,6 +377,60 @@ internal static class ContractComparison
             "unsupported.shape-evidence-missing",
             $"the reference target '{targetPath}' is not present in the recorded contract graph");
         return default;
+    }
+
+    private static void CompareNodeNullAcceptance(
+        JsonElement earlier,
+        JsonElement later,
+        string path,
+        ChangeSet changes)
+    {
+        bool oldAcceptsNull = earlier.GetProperty("acceptsNull").GetBoolean();
+        bool newAcceptsNull = later.GetProperty("acceptsNull").GetBoolean();
+        if (oldAcceptsNull == newAcceptsNull)
+        {
+            return;
+        }
+
+        changes.Add(
+            path,
+            oldAcceptsNull ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
+            oldAcceptsNull ? ValueNullableRemoved : ValueNullableAdded,
+            oldAcceptsNull
+                ? "the later value slot rejects a null token accepted by the earlier contract"
+                : "the later value slot accepts null in addition to every earlier value");
+    }
+
+    private static void CompareCollectionSemantics(
+        JsonElement earlier,
+        JsonElement later,
+        string path,
+        ChangeSet changes)
+    {
+        string oldSemantics = earlier.GetProperty("collectionSemantics").GetString()!;
+        string newSemantics = later.GetProperty("collectionSemantics").GetString()!;
+        if (string.Equals(oldSemantics, "ordered-with-multiplicity", StringComparison.Ordinal) &&
+            string.Equals(newSemantics, "ordered-with-multiplicity", StringComparison.Ordinal))
+        {
+            string oldType = earlier.GetProperty("typeName").GetString()!;
+            string newType = later.GetProperty("typeName").GetString()!;
+            if (!string.Equals(oldType, newType, StringComparison.Ordinal))
+            {
+                changes.Add(
+                    path,
+                    JsonDriftClassification.Compatible,
+                    CollectionPreservation,
+                    $"the measured collection transition from '{oldType}' to '{newType}' preserves array order and multiplicity");
+            }
+
+            return;
+        }
+
+        changes.Add(
+            path,
+            JsonDriftClassification.Unsupported,
+            CollectionPreservation,
+            $"the collection transition from '{oldSemantics}' to '{newSemantics}' has no measured witness that the later reader preserves order and multiplicity");
     }
 
     private static void CompareObject(
@@ -473,7 +556,10 @@ internal static class ContractComparison
                     newIncluded
                         ? "the later contract includes a member that the earlier contract ignored; earlier documents remain readable"
                         : "the later contract ignores a member that the earlier contract could write");
-                continue;
+                if (!newIncluded)
+                {
+                    continue;
+                }
             }
 
             if (!newIncluded)
@@ -491,7 +577,8 @@ internal static class ContractComparison
         ChangeSet changes,
         bool laterRequiresConstructorParameters)
     {
-        if (TryGetConstructorBinding(member, out JsonElement binding))
+        bool constructorBound = TryGetConstructorBinding(member, out JsonElement binding);
+        if (constructorBound)
         {
             bool hasDefault = binding.GetProperty("hasDefaultValue").GetBoolean();
 
@@ -508,17 +595,19 @@ internal static class ContractComparison
                     : hasDefault
                         ? "the later contract adds a bound constructor parameter with a default value; earlier documents remain readable"
                         : "the later contract adds a bound constructor parameter; missing values use the constructor default");
-            return;
         }
 
         bool required = member.GetProperty("required").GetBoolean();
-        changes.Add(
-            path,
-            required ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
-            required ? RequiredAdded : AdditiveProperty,
-            required
-                ? "the later contract adds a required member that earlier documents do not contain"
-                : "the later contract adds an optional member; earlier members remain readable");
+        if (required || !constructorBound)
+        {
+            changes.Add(
+                path,
+                required ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
+                required ? RequiredAdded : AdditiveProperty,
+                required
+                    ? "the later contract adds a required member that earlier documents do not contain"
+                    : "the later contract adds an optional member; earlier members remain readable");
+        }
     }
 
     private static Dictionary<string, string> FindExplicitRenames(
@@ -614,6 +703,7 @@ internal static class ContractComparison
     {
         ChangeSet changes = context.Changes;
         CompareConstructorBinding(earlier, later, path, changes);
+        CompareMemberMaterialization(earlier, later, path, changes);
 
         bool oldRequired = earlier.GetProperty("required").GetBoolean();
         bool newRequired = later.GetProperty("required").GetBoolean();
@@ -659,8 +749,21 @@ internal static class ContractComparison
         string path,
         ChangeSet changes)
     {
-        if (!TryGetConstructorBinding(earlier, out JsonElement oldBinding) ||
-            !TryGetConstructorBinding(later, out JsonElement newBinding))
+        bool oldBound = TryGetConstructorBinding(earlier, out JsonElement oldBinding);
+        bool newBound = TryGetConstructorBinding(later, out JsonElement newBinding);
+        if (oldBound != newBound)
+        {
+            changes.Add(
+                path,
+                newBound ? JsonDriftClassification.Compatible : JsonDriftClassification.Unsupported,
+                newBound ? ConstructorBindingAdded : ComparisonRuleGap,
+                newBound
+                    ? "the later contract restores the existing serialized member through a measured constructor binding"
+                    : "the later contract removes a constructor binding without a measured preservation rule");
+            return;
+        }
+
+        if (!oldBound)
         {
             return;
         }
@@ -674,6 +777,41 @@ internal static class ContractComparison
                 ConstructorParameterRenamed,
                 $"the constructor parameter binding changes from '{oldBinding.GetProperty("name").GetString()}' to '{newBinding.GetProperty("name").GetString()}'");
         }
+    }
+
+    private static void CompareMemberMaterialization(
+        JsonElement earlier,
+        JsonElement later,
+        string path,
+        ChangeSet changes)
+    {
+        bool oldWrites = earlier.GetProperty("canSerialize").GetBoolean();
+        bool oldReads = earlier.GetProperty("canDeserialize").GetBoolean();
+        bool newWrites = later.GetProperty("canSerialize").GetBoolean();
+        bool newReads = later.GetProperty("canDeserialize").GetBoolean();
+
+        if (oldWrites == newWrites && oldReads == newReads)
+        {
+            return;
+        }
+
+        if (oldWrites && (!newReads || !newWrites))
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Incompatible,
+                MemberMaterialization,
+                !newReads
+                    ? "the later contract has no setter or constructor binding that can restore a member written by the earlier contract"
+                    : "the later contract can read the member but cannot write it back, so the earlier value is not preserved");
+            return;
+        }
+
+        changes.Add(
+            path,
+            JsonDriftClassification.Compatible,
+            MemberMaterialization,
+            "the later member retains every read/write capability needed to preserve documents written by the earlier contract");
     }
 
     private static void CompareNullability(
@@ -867,6 +1005,11 @@ internal static class ContractComparison
             return;
         }
 
+        if (IsNullablePair(oldType, newType))
+        {
+            return;
+        }
+
         if (oldToken == "number")
         {
             CompareNumericTypes(oldType, newType, path, changes);
@@ -885,9 +1028,34 @@ internal static class ContractComparison
     {
         bool oldExists = earlier.TryGetProperty("enumWire", out JsonElement oldWire);
         bool newExists = later.TryGetProperty("enumWire", out JsonElement newWire);
-        if (!oldExists || !newExists)
+        if (oldExists != newExists)
+        {
+            changes.Add(
+                path,
+                JsonDriftClassification.Unsupported,
+                ComparisonRuleGap,
+                "enum wire metadata is present on only one side of the comparison");
+            return;
+        }
+
+        if (!oldExists)
         {
             return;
+        }
+
+        bool oldAcceptsIntegers = oldWire.TryGetProperty("integerTokensAccepted", out JsonElement oldIntegerAcceptance) &&
+            oldIntegerAcceptance.GetBoolean();
+        bool newAcceptsIntegers = newWire.TryGetProperty("integerTokensAccepted", out JsonElement newIntegerAcceptance) &&
+            newIntegerAcceptance.GetBoolean();
+        if (oldAcceptsIntegers != newAcceptsIntegers)
+        {
+            changes.Add(
+                path,
+                oldAcceptsIntegers ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
+                EnumIntegerTokenAcceptance,
+                oldAcceptsIntegers
+                    ? "the later enum reader rejects integer tokens accepted by the earlier contract"
+                    : "the later enum reader accepts integer tokens in addition to every token the earlier reader accepted");
         }
 
         var oldMembers = oldWire.EnumerateObject().Where(static property => property.Name is not ("converterType" or "integerTokensAccepted")).ToDictionary(static property => property.Name, static property => property.Value, StringComparer.Ordinal);

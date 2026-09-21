@@ -77,6 +77,7 @@ internal static class ContractCanonicalizer
         {
             ["typeName"] = node.TypeName,
             ["kind"] = KindName(node.Kind),
+            ["acceptsNull"] = node.AcceptsNull,
             ["reachedBy"] = MetadataSourceRules.Id(node.Source),
             ["path"] = node.Path,
             ["rule"] = verdict.RuleId,
@@ -128,6 +129,8 @@ internal static class ContractCanonicalizer
                 break;
 
             case RecordedNodeKind.Enumerable:
+                described["collectionSemantics"] = CollectionSemanticsName(
+                    node.CollectionSemantics ?? RecordedCollectionSemantics.Unclassified);
                 if (EdgeNode(node, MetadataSourceKind.EnumerableElementTypes) is RecordedNode element)
                 {
                     described["elementType"] = element.TypeName;
@@ -186,6 +189,8 @@ internal static class ContractCanonicalizer
             ["getNullable"] = member.GetNullable,
             ["setNullable"] = member.SetNullable,
             ["extensionData"] = member.ExtensionData,
+            ["canSerialize"] = member.CanSerialize,
+            ["canDeserialize"] = member.CanDeserialize,
             ["included"] = member.Included,
             ["declaredAttributes"] = DescribeAttributes(member.DeclaredAttributes),
             ["rule"] = verdict.RuleId,
@@ -345,5 +350,11 @@ internal static class ContractCanonicalizer
         RecordedNodeKind.Scalar => "scalar",
         RecordedNodeKind.Reference => "reference",
         RecordedNodeKind.Unavailable => "unavailable",
+    };
+
+    private static string CollectionSemanticsName(RecordedCollectionSemantics semantics) => semantics switch
+    {
+        RecordedCollectionSemantics.OrderedWithMultiplicity => "ordered-with-multiplicity",
+        RecordedCollectionSemantics.Unclassified => "unclassified",
     };
 }

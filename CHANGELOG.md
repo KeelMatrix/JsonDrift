@@ -27,6 +27,12 @@ All notable changes to this project are documented in this file. The format is b
 - Public reflection and source-generated regressions cover nested members, deeper graphs, collection elements,
   dictionary values, root scalar tokens, and boundary-valued numeric witnesses through `Compare` and
   `AssertCompatible`.
+- A recorded-fact comparison rule table binds every traversed fact to a measured preservation witness or an
+  explicit non-contract reason; an automated gate rejects uncovered facts and every rule gap fails closed.
+- Nullable value slots are retained at roots and nested edges, writable-member materialization is checked,
+  collection compatibility is restricted to order-and-multiplicity-preserving materializers, enum integer-token
+  acceptance is compared, independent member constraints are all reported, and malformed reference graphs are
+  rejected before comparison.
 
 ### Fixed
 

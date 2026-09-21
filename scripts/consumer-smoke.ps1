@@ -58,7 +58,11 @@ $nugetConfig = @"
 "@
 
 $program = @'
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift;
 
 string baselinePath = Path.Combine(Path.GetTempPath(), "jsondrift-consumer-" + Guid.NewGuid().ToString("N") + ".json");
@@ -95,10 +99,114 @@ catch (JsonDriftCompatibilityException)
 {
     Console.WriteLine($"consumer smoke passed: {change.RuleId}: {change.Reason}");
 }
+
+RequireRejected(Compare(SmokeContext.Default.Int32, SmokeContext.Default.NullableInt32));
+RequireRejected(Compare(SmokeContext.Default.GetterOnlySmoke, SmokeContext.Default.WritableSmoke));
+RequireRejected(
+    Compare(SmokeContext.Default.HashSetInt32, SmokeContext.Default.ListInt32),
+    JsonDriftClassification.Unsupported);
+
+var acceptsIntegers = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+acceptsIntegers.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: true));
+var rejectsIntegers = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+rejectsIntegers.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
+RequireRejected(Compare(
+    rejectsIntegers.GetTypeInfo(typeof(SmokeState)),
+    acceptsIntegers.GetTypeInfo(typeof(SmokeState))));
+
+JsonDriftReport independent = Compare(SmokeContext.Default.IncludedRequiredSmoke, SmokeContext.Default.IgnoredSmoke);
+RequireRejected(independent);
+if (!independent.Changes.Any(change => change.RuleId == "R09.ignore.member-included") ||
+    !independent.Changes.Any(change => change.RuleId == "R04.requiredness.optional-to-required"))
+{
+    throw new InvalidOperationException("the packaged comparison suppressed an independent member constraint");
+}
+
+RequireCompatible(Compare(SmokeContext.Default.Int64, SmokeContext.Default.Int32));
+RequireCompatible(Compare(SmokeContext.Default.Int32Array, SmokeContext.Default.ListInt32));
+RequireCompatible(Compare(SmokeContext.Default.OrderEnvelopeOptional, SmokeContext.Default.OrderEnvelopeV1));
+RequireCompatible(Compare(SmokeContext.Default.RecursiveSmoke, SmokeContext.Default.RecursiveSmoke));
+
+JsonObject malformed = JsonNode.Parse(JsonDrift.Extract(SmokeContext.Default.RecursiveSmoke).CanonicalJson)!.AsObject();
+malformed["root"] = new JsonObject
+{
+    ["typeName"] = typeof(RecursiveSmoke).FullName,
+    ["kind"] = "reference",
+    ["acceptsNull"] = false,
+    ["reachedBy"] = "resolver-chain",
+    ["path"] = "root",
+    ["rule"] = "supported.reference",
+    ["supported"] = true,
+    ["declaredAttributes"] = new JsonArray(),
+    ["reference"] = "root",
+};
+string malformedPath = Path.Combine(Path.GetTempPath(), "jsondrift-malformed-" + Guid.NewGuid().ToString("N") + ".json");
+try
+{
+    string malformedJson = malformed.ToJsonString(new JsonSerializerOptions { WriteIndented = true })
+        .Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
+    File.WriteAllText(malformedPath, malformedJson, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    try
+    {
+        JsonDrift.Compare(SmokeContext.Default.RecursiveSmoke, malformedPath, JsonCompatibility.ReaderBackward);
+        throw new InvalidOperationException("the packaged comparison accepted a reference-only baseline cycle");
+    }
+    catch (InvalidDataException)
+    {
+    }
+}
+finally
+{
+    File.Delete(malformedPath);
+}
+
+Console.WriteLine("consumer conservatism passed: R1-R6 public package regressions and positive controls");
 }
 finally
 {
     File.Delete(baselinePath);
+}
+
+static JsonDriftReport Compare(JsonTypeInfo later, JsonTypeInfo earlier)
+{
+    string path = Path.Combine(Path.GetTempPath(), "jsondrift-pair-" + Guid.NewGuid().ToString("N") + ".json");
+    try
+    {
+        JsonBaseline.Create(earlier, path, overwrite: false);
+        return JsonDrift.Compare(later, path, JsonCompatibility.ReaderBackward);
+    }
+    finally
+    {
+        File.Delete(path);
+    }
+}
+
+static void RequireRejected(JsonDriftReport report, JsonDriftClassification? expected = null)
+{
+    if (expected is JsonDriftClassification classification && report.Outcome != classification ||
+        expected is null && report.Outcome == JsonDriftClassification.Compatible)
+    {
+        throw new InvalidOperationException($"the packaged comparison returned {report.Outcome} for a rejected transition");
+    }
+
+    try
+    {
+        report.AssertCompatible();
+        throw new InvalidOperationException("the packaged assertion accepted a rejected transition");
+    }
+    catch (JsonDriftCompatibilityException)
+    {
+    }
+}
+
+static void RequireCompatible(JsonDriftReport report)
+{
+    if (!report.IsCompatible)
+    {
+        throw new InvalidOperationException($"the packaged comparison rejected a positive control with {report.Outcome}");
+    }
+
+    report.AssertCompatible();
 }
 
 public sealed class OrderEnvelopeV1
@@ -114,8 +222,61 @@ public sealed class OrderEnvelopeV2
     public string Required { get; set; } = string.Empty;
 }
 
+public sealed class OrderEnvelopeOptional
+{
+    public int Id { get; set; }
+
+    public string? Note { get; set; }
+}
+
+public sealed class WritableSmoke
+{
+    public int Value { get; set; }
+}
+
+public sealed class GetterOnlySmoke
+{
+    public int Value { get; }
+}
+
+public enum SmokeState
+{
+    Ready = 1,
+}
+
+public sealed class IgnoredSmoke
+{
+    [JsonIgnore]
+    public int Value { get; set; }
+}
+
+public sealed class IncludedRequiredSmoke
+{
+    [JsonRequired]
+    public int Value { get; set; }
+}
+
+public sealed class RecursiveSmoke
+{
+    public int Value { get; set; }
+
+    public RecursiveSmoke? Next { get; set; }
+}
+
 [JsonSerializable(typeof(OrderEnvelopeV1))]
 [JsonSerializable(typeof(OrderEnvelopeV2))]
+[JsonSerializable(typeof(OrderEnvelopeOptional))]
+[JsonSerializable(typeof(WritableSmoke))]
+[JsonSerializable(typeof(GetterOnlySmoke))]
+[JsonSerializable(typeof(IgnoredSmoke))]
+[JsonSerializable(typeof(IncludedRequiredSmoke))]
+[JsonSerializable(typeof(RecursiveSmoke))]
+[JsonSerializable(typeof(int?))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(long))]
+[JsonSerializable(typeof(List<int>))]
+[JsonSerializable(typeof(int[]))]
+[JsonSerializable(typeof(HashSet<int>))]
 public partial class SmokeContext : JsonSerializerContext
 {
 }

@@ -92,25 +92,24 @@ internal static class MetadataTraversal
         {
             TraversalInventory.Ledger.RecordSource(source);
 
-            Type type = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
-
             if (depth > MaxTraversalDepth)
             {
                 return RecordUnavailable(
-                    type,
+                    declaredType,
                     source,
                     path,
                     RecordedNodeUnavailableReason.TraversalBudget,
                     known);
             }
 
-            if (recorded.TryGetValue(type, out RecordedNode? alreadyRecorded))
+            if (recorded.TryGetValue(declaredType, out RecordedNode? alreadyRecorded))
             {
                 var reference = new RecordedNode
                 {
                     Source = source,
-                    Type = type,
-                    TypeName = TypeShapes.TypeName(type),
+                    Type = declaredType,
+                    TypeName = TypeShapes.TypeName(declaredType),
+                    AcceptsNull = AcceptsNull(declaredType),
                     Path = path,
                     Kind = RecordedNodeKind.Reference,
                     FrameworkKind = alreadyRecorded.FrameworkKind,
@@ -126,37 +125,38 @@ internal static class MetadataTraversal
 
             try
             {
-                info = known ?? options.GetTypeInfo(type);
+                info = known ?? options.GetTypeInfo(declaredType);
             }
             catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException or JsonException)
             {
-                return RecordUnavailable(type, source, path, RecordedNodeUnavailableReason.MetadataUnavailable, null);
+                return RecordUnavailable(declaredType, source, path, RecordedNodeUnavailableReason.MetadataUnavailable, null);
             }
 
             var node = new RecordedNode
             {
                 Source = source,
-                Type = type,
-                TypeName = TypeShapes.TypeName(type),
+                Type = declaredType,
+                TypeName = TypeShapes.TypeName(declaredType),
+                AcceptsNull = AcceptsNull(declaredType),
                 Path = path,
                 FrameworkKind = info.Kind,
             };
 
-            visited.Add(type);
-            recorded.Add(type, node);
+            visited.Add(declaredType);
+            recorded.Add(declaredType, node);
 
-            node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(type, path));
-            node.DeclaredAttributes.AddRange(RecordEnumMemberAttributes(type, path));
+            node.DeclaredAttributes.AddRange(RecordDeclaredAttributes(declaredType, path));
+            node.DeclaredAttributes.AddRange(RecordEnumMemberAttributes(declaredType, path));
             node.Resolver = RecordResolver(path, info.Options);
             RecordOptions(node, info.Options);
-            RecordConverterFacts(node, type, info.Options, path);
+            RecordConverterFacts(node, declaredType, info.Options, path);
 
             node.Kind = info.Kind switch
             {
-                JsonTypeInfoKind.Object => RecordObjectShape(node, info, type, depth),
-                JsonTypeInfoKind.Enumerable => RecordEnumerableShape(node, info, type, depth),
-                JsonTypeInfoKind.Dictionary => RecordDictionaryShape(node, info, type, depth),
-                JsonTypeInfoKind.None => RecordScalarShape(node, info, type, path),
+                JsonTypeInfoKind.Object => RecordObjectShape(node, info, declaredType, depth),
+                JsonTypeInfoKind.Enumerable => RecordEnumerableShape(node, info, declaredType, depth),
+                JsonTypeInfoKind.Dictionary => RecordDictionaryShape(node, info, declaredType, depth),
+                JsonTypeInfoKind.None => RecordScalarShape(node, info, declaredType, path),
             };
 
             TraversalInventory.Ledger.RecordNodeKind(node.Kind);
@@ -175,6 +175,7 @@ internal static class MetadataTraversal
                 Source = source,
                 Type = type,
                 TypeName = TypeShapes.TypeName(type),
+                AcceptsNull = AcceptsNull(type),
                 Path = path,
                 Kind = RecordedNodeKind.Unavailable,
                 UnavailableReason = reason,
@@ -231,6 +232,7 @@ internal static class MetadataTraversal
 
         private RecordedNodeKind RecordEnumerableShape(RecordedNode node, JsonTypeInfo info, Type type, int depth)
         {
+            node.CollectionSemantics = CollectionSemantics(type);
             Type? elementType = info.ElementType ?? TypeShapes.ElementType(type);
 
             if (elementType is not null)
@@ -365,6 +367,7 @@ internal static class MetadataTraversal
             }
 
             RecordedNode shape = Visit(property.PropertyType, MetadataSourceKind.ObjectMembers, path, depth + 1);
+            RecordedConstructorBinding? constructorBinding = RecordConstructorBinding(property);
 
             bool opaque =
                 facts.Any(fact => !ContractAllowlists.IsAllowlistedConverterFor(fact.ConverterType, property.PropertyType)) ||
@@ -377,6 +380,10 @@ internal static class MetadataTraversal
                 property.IsGetNullable,
                 property.IsSetNullable,
                 property.IsExtensionData,
+                property.Get is not null,
+                property.Set is not null ||
+                    constructorBinding is not null ||
+                    property.ObjectCreationHandling == JsonObjectCreationHandling.Populate,
                 opaque ? null : RecordEnumWire(owner, property, property.PropertyType, path),
                 facts,
                 attributes,
@@ -385,7 +392,7 @@ internal static class MetadataTraversal
                 Path = path,
                 MetadataNotResolved = opaque,
                 Included = ignore?.Condition != JsonIgnoreCondition.Always,
-                ConstructorBinding = RecordConstructorBinding(property),
+                ConstructorBinding = constructorBinding,
             };
         }
 
@@ -433,6 +440,8 @@ internal static class MetadataTraversal
                         GetNullable: false,
                         SetNullable: false,
                         ExtensionData: false,
+                        CanSerialize: member is PropertyInfo { GetMethod: not null } or FieldInfo,
+                        CanDeserialize: member is PropertyInfo { SetMethod: not null } or FieldInfo,
                         EnumWire: null,
                         ConverterFacts: Array.Empty<RecordedConverterFact>(),
                         DeclaredAttributes: RecordDeclaredAttributes(member, path),
@@ -501,6 +510,7 @@ internal static class MetadataTraversal
 
         private static RecordedAttributeFact[] RecordEnumMemberAttributes(Type type, string path)
         {
+            type = Nullable.GetUnderlyingType(type) ?? type;
             if (!type.IsEnum)
             {
                 return Array.Empty<RecordedAttributeFact>();
@@ -579,6 +589,14 @@ internal static class MetadataTraversal
                 node.ConverterFacts.Add(new RecordedConverterFact(MetadataSourceKind.OptionsConverters, path, type, converter.GetType()));
             }
         }
+
+        private static bool AcceptsNull(Type type) => Nullable.GetUnderlyingType(type) is not null;
+
+        private static RecordedCollectionSemantics CollectionSemantics(Type type) =>
+            type.IsArray ||
+            type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)
+                ? RecordedCollectionSemantics.OrderedWithMultiplicity
+                : RecordedCollectionSemantics.Unclassified;
 
         /// <summary>
         /// Records the wire identity of an enum contract from the effective framework converter: the converter

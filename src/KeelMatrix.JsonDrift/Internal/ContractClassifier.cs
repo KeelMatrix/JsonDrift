@@ -158,6 +158,15 @@ internal static class ContractClassifier
                         $"{node.Path} is enumerable but recorded no element type"));
             }
 
+            if (node.CollectionSemantics != RecordedCollectionSemantics.OrderedWithMultiplicity)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedCollectionSemanticsUnproven,
+                    Witness(
+                        MetadataSourceKind.EnumerableElementTypes,
+                        $"{node.Path} uses {node.TypeName}, whose materializer has no measured order-and-multiplicity preservation rule"));
+            }
+
             return ClassifyEdges(node, RuleIds.SupportedEnumerable);
         }
 
@@ -216,7 +225,8 @@ internal static class ContractClassifier
                     Witness(node.Source, $"{node.Path} recorded no type"));
             }
 
-            if (type.IsEnum)
+            Type effectiveType = Nullable.GetUnderlyingType(type) ?? type;
+            if (effectiveType.IsEnum)
             {
                 if (node.EnumWire is null)
                 {
@@ -288,6 +298,15 @@ internal static class ContractClassifier
             if (!member.Included)
             {
                 return Classification.Classifiable(RuleIds.SupportedMember);
+            }
+
+            if (member.CanSerialize && !member.CanDeserialize)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedMemberMaterializationUnproven,
+                    Witness(
+                        MetadataSourceKind.ObjectMembers,
+                        $"{member.Path} can write a JSON value but has no setter or constructor binding that can restore it"));
             }
 
             foreach (RecordedConverterFact fact in member.ConverterFacts)
