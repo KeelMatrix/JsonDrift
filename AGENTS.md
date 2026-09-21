@@ -53,7 +53,7 @@ Run the focused rule matrix first, then the Release solution build and the full
 `System.Text.Json` package version changes, and update `docs/compatibility-rules.md` from the measured output
 rather than from expectation.
 
-Repository validation is local by design; no remote CI is configured because private GitHub Actions are not
-approved. The `scripts/validate.ps1` gate is the source of truth and includes the required direct-and-transitive
-vulnerability audit. The repository claims only Windows/`net8.0`; other platforms, runtime/SDK combinations,
-and remote CI evidence remain unverified and must not be implied by developer documentation.
+The same `scripts/validate.ps1` gate runs in `.github/workflows/ci.yml` on GitHub-hosted `windows-latest` for
+pushes and pull requests to `main`. The script remains the local source of truth and includes the required
+direct-and-transitive vulnerability audit. The repository claims only Windows/`net8.0`; other platforms and
+runtime/SDK combinations remain unverified and must not be implied by developer documentation.
