@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file. The format is b
   collection compatibility is restricted to order-and-multiplicity-preserving materializers, enum integer-token
   acceptance is compared, independent member constraints are all reported, and malformed reference graphs are
   rejected before comparison.
+- The root and package READMEs now contain a complete source-generated first-success example with explicit
+  baseline creation, a compatible change, and a rejected change; validation runs that same example from the
+  built package.
 
 ### Fixed
 
@@ -40,6 +43,8 @@ All notable changes to this project are documented in this file. The format is b
   entry and rejects unexpected `.psmdcp` names and other artifact mutations.
 - Release validation now checks the tag, package version, finalized changelog, exact package and symbol archives,
   isolated package consumption, and tag-only Trusted Publishing workflow before publication.
+- Release validation rejects impossible calendar dates and non-`Added` categories in the `0.1.0` first-release
+  entry, with positive and negative contract fixtures.
 
 ## [0.1.0] - 2026-09-18
 

@@ -939,6 +939,16 @@ Invoke-Check -Id 'package-consumer' -Description 'isolated package-consumer smok
         throw "consumer smoke script not found: $consumerSmokeScript"
     }
 
+    $firstSuccessScript = Join-Path $PSScriptRoot 'first-success-consumer.ps1'
+    if (-not (Test-Path -LiteralPath $firstSuccessScript -PathType Leaf)) {
+        throw "documented first-success consumer script not found: $firstSuccessScript"
+    }
+
+    & pwsh -NoProfile -File $firstSuccessScript -PackagePath $script:productPackagePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "documented first-success consumer exited with code $LASTEXITCODE"
+    }
+
     & pwsh -NoProfile -File $consumerSmokeScript -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "consumer smoke exited with code $LASTEXITCODE"

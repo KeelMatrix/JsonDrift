@@ -8,7 +8,8 @@ namespace KeelMatrix.JsonDrift;
 /// <remarks>
 /// Comparisons use the complete bounded nested contract graph. Root scalar token changes and proven numeric
 /// range, signedness, fractional, or precision-loss changes are classified explicitly; scalar or numeric
-/// transitions without a sound rule are unsupported.
+/// transitions without a sound rule are unsupported. Independent constraints are evaluated together, and
+/// unsupported collection materializers or malformed reference graphs cannot produce a compatible result.
 /// </remarks>
 public static class JsonDrift
 {

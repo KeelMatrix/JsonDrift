@@ -76,6 +76,20 @@ function Assert-InstallExamples {
     }
 }
 
+function Assert-FirstReleaseCategories {
+    param([Parameter(Mandatory = $true)][string]$Section)
+
+    if ($ExpectedVersion -cne '0.1.0') {
+        return
+    }
+
+    $categoryMatches = [regex]::Matches($Section, '(?m)^###[ \t]+(?<category>[^\r\n]+)[ \t]*$')
+    Assert-Contract ($categoryMatches.Count -eq 1) "first release '$ExpectedVersion' must contain exactly one changelog category"
+    $category = $categoryMatches[0].Groups['category'].Value.Trim()
+    Assert-Contract ($category -ceq 'Added') "first release '$ExpectedVersion' must use the Added category only"
+    Assert-Contract ([regex]::IsMatch($Section, '(?m)^\s*[-*+]\s+\S')) "first release '$ExpectedVersion' Added category must contain an entry"
+}
+
 function Assert-Changelog {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -85,6 +99,14 @@ function Assert-Changelog {
     Assert-Contract ($headingMatches.Count -eq 1) "CHANGELOG.md must have exactly one finalized heading for '$ExpectedVersion'"
     $date = $headingMatches[0].Groups['date'].Value.Trim()
     Assert-Contract ($date -match '^\d{4}-\d{2}-\d{2}$') "CHANGELOG.md release heading for '$ExpectedVersion' must contain an ISO date"
+    $calendarDate = [DateTime]::MinValue
+    $validCalendarDate = [DateTime]::TryParseExact(
+        $date,
+        'yyyy-MM-dd',
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::None,
+        [ref]$calendarDate)
+    Assert-Contract $validCalendarDate "CHANGELOG.md release heading for '$ExpectedVersion' must contain a valid calendar date"
     Assert-Contract ($date -notmatch '(?i)planned|unreleased|not[ \t-]+yet[ \t-]+published|tbd') "CHANGELOG.md release heading for '$ExpectedVersion' is not finalized"
 
     $sectionStart = $headingMatches[0].Index
@@ -96,6 +118,7 @@ function Assert-Changelog {
         $text.Substring($sectionStart)
     }
     Assert-Contract ($section -notmatch '(?i)\b(?:planned|unreleased|not[ \t-]+yet[ \t-]+published|tbd)\b') "CHANGELOG.md release section for '$ExpectedVersion' contains unfinished release language"
+    Assert-FirstReleaseCategories -Section $section
 }
 
 $script:ResolvedRepositoryRoot = (Resolve-Path -LiteralPath $RepositoryRoot).Path

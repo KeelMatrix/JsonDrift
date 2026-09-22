@@ -89,6 +89,30 @@ try {
 - Not yet published.
 '@
 
+    Invoke-ContractCase -Name 'impossible-calendar-date' -ExpectedVersion '0.1.0' -ShouldPass $false -Changelog @'
+# Changelog
+
+## [Unreleased]
+
+## [0.1.0] - 2026-99-99
+
+### Added
+
+- Finalized release notes.
+'@
+
+    Invoke-ContractCase -Name 'disallowed-first-release-category' -ExpectedVersion '0.1.0' -ShouldPass $false -Changelog @'
+# Changelog
+
+## [Unreleased]
+
+## [0.1.0] - 2026-09-21
+
+### Fixed
+
+- Finalized release notes.
+'@
+
     Invoke-ContractCase -Name 'version-mismatch' -ExpectedVersion '0.1.1' -ShouldPass $false -Changelog @'
 # Changelog
 

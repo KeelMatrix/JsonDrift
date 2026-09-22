@@ -13,7 +13,9 @@ namespace KeelMatrix.JsonDrift;
 /// serializer metadata contains a feature that JsonDrift has not measured; unsupported contracts must never be
 /// treated as compatible. Format version 2 records complete nested object, collection-element, and dictionary
 /// key/value metadata, with bounded references for repeated types, and records the JSON token kind of scalar
-/// nodes for fail-closed comparison.
+/// nodes for fail-closed comparison. ReaderBackward comparison retains nullable value acceptance at every value
+/// slot, requires evidenced collection preservation, compares enum token domains and member materialization, and
+/// rejects malformed reference-only graphs before comparison.
 /// </remarks>
 public sealed class JsonContract
 {

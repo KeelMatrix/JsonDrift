@@ -4,6 +4,140 @@ KeelMatrix.JsonDrift extracts a deterministic, versioned description of an effec
 `System.Text.Json` contract, stores it as an explicit baseline, and compares later metadata with the
 `ReaderBackward` policy. Reports contain every classified change and fail closed for unsupported metadata.
 
+## Install
+
+Create a `net8.0` console project and install the package:
+
+```pwsh
+dotnet new console --framework net8.0 --name JsonDriftExample
+Set-Location JsonDriftExample
+dotnet add package KeelMatrix.JsonDrift --version 0.1.0
+```
+
+## Quick Start
+
+Save the following complete program as `Program.cs`. It includes the DTOs, imports, and source-generated
+context used by the example.
+
+<!-- BEGIN:FIRST-SUCCESS-EXAMPLE -->
+```csharp
+using System;
+using System.IO;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using KeelMatrix.JsonDrift;
+
+const string baselinePath = "contracts/order-event.json";
+
+if (args.Length != 1)
+{
+    throw new ArgumentException("Choose create-baseline, compatible, or breaking.");
+}
+
+switch (args[0])
+{
+    case "create-baseline":
+        Directory.CreateDirectory(Path.GetDirectoryName(baselinePath)!);
+        JsonBaseline.Create(
+            OrderEventJsonContext.Default.OrderEventV1,
+            baselinePath,
+            overwrite: false);
+        Console.WriteLine($"baseline created: {baselinePath}");
+        break;
+
+    case "compatible":
+        JsonDriftReport compatible = JsonDrift.Compare(
+            OrderEventJsonContext.Default.OrderEventV2WithOptionalNote,
+            baselinePath,
+            JsonCompatibility.ReaderBackward);
+        compatible.AssertCompatible();
+        Console.WriteLine($"compatible change: {compatible.Outcome}");
+        break;
+
+    case "breaking":
+        JsonDriftReport breaking = JsonDrift.Compare(
+            OrderEventJsonContext.Default.OrderEventV2RenamedOrRequired,
+            baselinePath,
+            JsonCompatibility.ReaderBackward);
+        Console.WriteLine($"rejected change: {breaking.Outcome}");
+        foreach (JsonDriftChange change in breaking.Changes)
+        {
+            Console.WriteLine($"- {change.RuleId}: {change.Reason}");
+        }
+
+        try
+        {
+            breaking.AssertCompatible();
+            throw new InvalidOperationException("the breaking change was accepted");
+        }
+        catch (JsonDriftCompatibilityException)
+        {
+            Console.WriteLine("AssertCompatible rejected the change.");
+        }
+
+        break;
+
+    default:
+        throw new ArgumentException("Choose create-baseline, compatible, or breaking.");
+}
+
+public sealed class OrderEventV1
+{
+    public int OrderId { get; set; }
+
+    [JsonPropertyName("account_id")]
+    public string? CustomerName { get; set; }
+}
+
+public sealed class OrderEventV2WithOptionalNote
+{
+    public int OrderId { get; set; }
+
+    [JsonPropertyName("account_id")]
+    public string? CustomerName { get; set; }
+
+    public string? Note { get; set; }
+}
+
+public sealed class OrderEventV2RenamedOrRequired
+{
+    public int OrderId { get; set; }
+
+    [JsonPropertyName("accountId")]
+    public string? CustomerName { get; set; }
+}
+
+[JsonSerializable(typeof(OrderEventV1))]
+[JsonSerializable(typeof(OrderEventV2WithOptionalNote))]
+[JsonSerializable(typeof(OrderEventV2RenamedOrRequired))]
+public partial class OrderEventJsonContext : JsonSerializerContext
+{
+}
+```
+<!-- END:FIRST-SUCCESS-EXAMPLE -->
+
+Create the baseline once and commit `contracts/order-event.json`:
+
+```pwsh
+dotnet run -- create-baseline
+```
+
+For routine comparisons, do not recreate or rewrite the baseline. An optional member is compatible:
+
+```pwsh
+dotnet run -- compatible
+```
+
+A serialized-name change is rejected with a structured report, and `AssertCompatible()` throws:
+
+```pwsh
+dotnet run -- breaking
+```
+
+The measured classification rules and their evidence remain in
+[docs/compatibility-rules.md](docs/compatibility-rules.md). The initial-release decisions are in
+[docs/initial-release-scope.md](docs/initial-release-scope.md).
+
 ## Scope
 
 - Package: `KeelMatrix.JsonDrift`, targeting `net8.0`.
@@ -59,59 +193,8 @@ The runtime dependency graph is intentionally small: `System.Text.Json` `10.0.12
 `KeelMatrix.Telemetry` `[0.1.0]`. The analyzer and SourceLink packages are build-only dependencies and do not
 flow to consumers.
 
-## Install and compare
-
-Install the package into a `net8.0` test project:
-
-```pwsh
-dotnet add package KeelMatrix.JsonDrift --version 0.1.0
-```
-
-Use the application's actual source-generated metadata (or the reflection/options overload) to create an
-explicit baseline and compare later metadata:
-
-```csharp
-JsonTypeInfo<OrderEventV1> baselineContract = MyJsonContext.Default.OrderEventV1;
-const string path = "contracts/order-event.json";
-
-JsonBaseline.Create(baselineContract, path, overwrite: false);
-
-// An optional additive member is compatible for ReaderBackward:
-JsonTypeInfo<OrderEventV2WithOptionalNote> additiveContract = MyJsonContext.Default.OrderEventV2WithOptionalNote;
-JsonDriftReport additive = JsonDrift.Compare(
-    additiveContract, path, JsonCompatibility.ReaderBackward);
-additive.AssertCompatible();
-
-// A measured allowlisted rename or a newly required member is reported as incompatible:
-JsonTypeInfo<OrderEventV2RenamedOrRequired> breakingContract = MyJsonContext.Default.OrderEventV2RenamedOrRequired;
-JsonDriftReport breakingChange = JsonDrift.Compare(
-    breakingContract, path, JsonCompatibility.ReaderBackward);
-// breakingChange.Changes contains the path, rule identifier, classification, and reason.
-// breakingChange.AssertCompatible() throws JsonDriftCompatibilityException.
-```
-
-The reflection/options overload requires an explicit resolver with the pinned `System.Text.Json` behavior:
-
-```csharp
-JsonSerializerOptions options = new()
-{
-    TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-};
-
-JsonBaseline.Create<OrderEventV1>(options, path, overwrite: false);
-JsonDriftReport reflectionComparison = JsonDrift.Compare<OrderEventV2WithOptionalNote>(
-    options, path, JsonCompatibility.ReaderBackward);
-```
-
-A measured, allowlisted `[JsonPropertyName]` rename is reported as incompatible. An arbitrary unallowlisted
-serialization attribute or value, including an unmeasured rename, is reported as unsupported.
-
 After an intentional contract change, replace the committed baseline explicitly with
 `JsonBaseline.Update(contract, path, overwrite: true)`. Normal comparisons never rewrite the baseline.
-
-The measured classification rules and their evidence remain in
-[docs/compatibility-rules.md](docs/compatibility-rules.md). The initial-release decisions are in
-[docs/initial-release-scope.md](docs/initial-release-scope.md).
 
 ## Deeper documentation
 

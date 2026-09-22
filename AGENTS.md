@@ -39,6 +39,10 @@ pwsh scripts/validate-release-version.ps1 -ExpectedVersion 0.1.0 -ExpectedCommit
   contained may be lost. Silent data loss is a break.
 - Unsupported or unrecognized converter metadata never maps to compatible, even when a round trip happens to
   be lossless.
+- Nullable value acceptance is retained at roots and nested value slots; collection compatibility requires an
+  evidenced order-and-multiplicity-preserving materializer; enum token-domain changes, member materialization,
+  and independent requiredness/binding constraints are compared explicitly; malformed reference-only graphs
+  are rejected before comparison.
 - Classification is deny by default: a contract is supported only when one recursive traversal recorded its
   shape evidence and its converter and resolver metadata matches the allowlists in
   `docs/compatibility-rules.md`. There is one traversal and one recorded model; the canonical document and the
