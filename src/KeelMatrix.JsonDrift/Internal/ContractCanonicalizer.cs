@@ -244,7 +244,7 @@ internal static class ContractCanonicalizer
         {
             ["discriminatorPropertyName"] = node.DiscriminatorPropertyName,
             ["unknownDerivedTypeHandling"] = node.UnknownDerivedTypeHandling,
-            ["requiresTypeDiscriminator"] = node.PolymorphismRequiresTypeDiscriminator,
+            ["requiresTypeDiscriminator"] = node.ReaderMaterializationRequiresDiscriminator,
             ["derivedTypes"] = derivedTypes,
         };
     }

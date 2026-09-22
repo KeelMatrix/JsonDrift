@@ -146,6 +146,7 @@ internal static class MetadataSourceRules
             RuleIds.SupportedMember,
             RuleIds.UnsupportedShapeEvidenceMissing,
             RuleIds.UnsupportedMetadataUnavailable,
+            RuleIds.UnsupportedObjectMaterializationUnproven,
         },
         MetadataSourceKind.ExtensionData => new[]
         {

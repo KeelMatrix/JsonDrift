@@ -152,10 +152,10 @@ internal static class ComparisonFactRules
                     nameof(RecordedDerivedType.TypeName),
                     nameof(RecordedDerivedType.Node))).ToArray()),
         Compared(
-            "polymorphic reader materialization",
-            "R10d.polymorphism.discriminator-required",
-            "test:ConcreteToAbstractPolymorphicTransitionRequiresADiscriminator",
-            Props<RecordedNode>(nameof(RecordedNode.PolymorphismRequiresTypeDiscriminator))),
+            "abstract/interface reader materialization",
+            "R10d.polymorphism.discriminator-required, unsupported.object-materialization-unproven",
+            "test:ConcreteToAbstractPolymorphicTransitionRequiresADiscriminator, test:PlainAbstractAndInterfaceReadersFailClosed",
+            Props<RecordedNode>(nameof(RecordedNode.ReaderMaterializationRequiresDiscriminator))),
         Compared(
             "nested contract graph",
             "recursive application of this rule table",

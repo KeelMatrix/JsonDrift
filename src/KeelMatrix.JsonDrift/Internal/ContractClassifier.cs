@@ -139,6 +139,15 @@ internal static class ContractClassifier
                 }
             }
 
+            if (node.ReaderMaterializationRequiresDiscriminator && node.DerivedTypes.Count == 0)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedObjectMaterializationUnproven,
+                    Witness(
+                        MetadataSourceKind.ObjectMembers,
+                        $"{node.Path} uses abstract or interface type {node.TypeName} without registered polymorphic derived-type metadata, so the framework reader cannot materialize it"));
+            }
+
             return Classification.Classifiable(RuleIds.SupportedObject);
         }
 

@@ -157,6 +157,10 @@ earlier documents contain no type discriminator, and the later reader cannot mat
 `Compare` reports `R10d.polymorphism.discriminator-required`. Adding dispatch while the base stays concrete
 retains the measured compatible control under `R10e.polymorphism.dispatch-added-concrete`.
 
+A plain abstract or interface contract without registered polymorphic derived-type metadata is unsupported.
+The framework reader cannot materialize that declared type, so `Compare` reports
+`unsupported.object-materialization-unproven` instead of accepting an unchanged member shape.
+
 `JsonDrift.Compare` also accepts an already-extracted `JsonContract`. After an intentional change, use
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.
 Reading never rewrites a baseline.

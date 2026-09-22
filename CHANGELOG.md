@@ -36,8 +36,9 @@ All notable changes to this project are documented in this file. The format is b
   non-interaction reason; its gate rejects a newly introduced family until every pair is classified.
 - Nullable value slots are retained at roots and nested edges, writable-member materialization is checked,
   collection compatibility is restricted to order-and-multiplicity-preserving materializers, enum integer-token
-  acceptance is compared, independent member constraints are all reported, and malformed reference graphs are
-  rejected before comparison.
+  acceptance is compared, abstract and interface readers without registered polymorphic derived types are
+  unsupported, independent member constraints are all reported, and malformed reference graphs are rejected
+  before comparison.
 - The root and package READMEs now contain a complete source-generated first-success example with explicit
   baseline creation, a compatible change, and a rejected change; validation runs that same example from the
   built package.

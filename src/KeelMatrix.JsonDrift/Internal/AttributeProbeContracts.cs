@@ -3,8 +3,9 @@ using System.Text.Json.Serialization;
 namespace KeelMatrix.JsonDrift.Internal;
 
 // These private declarations are measurement fixtures for the allowlist owned by the shipping assembly.
-// They are never exposed as a supported application model and are not executed by the classifier.
-internal abstract class AllowlistedAttributeProbe
+// They are never exposed as an application model; the concrete root keeps attribute measurement independent
+// from abstract/interface reader-materialization classification.
+internal sealed class AllowlistedAttributeProbe
 {
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ProbeAttributeEnum State { get; set; }

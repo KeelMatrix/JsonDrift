@@ -327,6 +327,8 @@ internal static class MetadataTraversal
 
         private void RecordPolymorphism(RecordedNode node, JsonTypeInfo info, int depth)
         {
+            node.ReaderMaterializationRequiresDiscriminator = info.Type.IsAbstract || info.Type.IsInterface;
+
             JsonPolymorphismOptions? polymorphism = info.PolymorphismOptions;
 
             if (polymorphism is null || polymorphism.DerivedTypes.Count == 0)
@@ -336,7 +338,6 @@ internal static class MetadataTraversal
 
             node.DiscriminatorPropertyName = polymorphism.TypeDiscriminatorPropertyName;
             node.UnknownDerivedTypeHandling = polymorphism.UnknownDerivedTypeHandling.ToString();
-            node.PolymorphismRequiresTypeDiscriminator = info.Type.IsAbstract || info.Type.IsInterface;
 
             foreach (JsonDerivedType derived in polymorphism.DerivedTypes.OrderBy(
                 static derived => derived.TypeDiscriminator?.ToString(),

@@ -417,6 +417,52 @@ public sealed class ComparisonConservatismTests
     }
 
     [Fact]
+    public void PlainAbstractAndInterfaceReadersFailClosed()
+    {
+        const string EarlierDocument = "{\"Name\":\"A\"}";
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(ConcreteAnimal), sourceGenerated);
+            string earlierDocument = JsonSerializer.Serialize(new ConcreteAnimal { Name = "A" }, earlier);
+            Assert.Equal(EarlierDocument, earlierDocument);
+
+            foreach (Type laterType in new[] { typeof(PlainAbstractAnimal), typeof(IPlainAnimal) })
+            {
+                JsonTypeInfo later = TypeInfo(laterType, sourceGenerated);
+                Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize(earlierDocument, later));
+
+                string directory = Path.Combine(
+                    Path.GetTempPath(),
+                    "jsondrift-plain-reader-materialization-tests",
+                    Guid.NewGuid().ToString("N"));
+                string baselinePath = Path.Combine(directory, "baseline.json");
+
+                try
+                {
+                    JsonContract written = JsonBaseline.Create(earlier, baselinePath, overwrite: false);
+                    JsonContract read = JsonBaseline.Read(baselinePath);
+                    Assert.Equal(written.CanonicalJson, read.CanonicalJson);
+
+                    JsonDriftReport report = JsonDrift.Compare(
+                        later,
+                        read,
+                        JsonCompatibility.ReaderBackward);
+
+                    AssertRejected(report, JsonDriftClassification.Unsupported);
+                    Assert.Contains(report.Changes, change =>
+                        change.Path == "root" &&
+                        change.RuleId == "unsupported.object-materialization-unproven");
+                }
+                finally
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void DictionaryMaterializationInteractionsFailClosed()
     {
         foreach (bool sourceGenerated in MetadataPaths())
@@ -800,6 +846,16 @@ public sealed class ComparisonConservatismTests
         public string Name { get; set; } = string.Empty;
     }
 
+    internal abstract class PlainAbstractAnimal
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal interface IPlainAnimal
+    {
+        string Name { get; set; }
+    }
+
     [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
     [JsonDerivedType(typeof(AbstractDog), "dog")]
     internal abstract class AbstractAnimal
@@ -883,6 +939,8 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithPolymorphism))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ConcreteAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PlainAbstractAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.IPlainAnimal))]
 [JsonSerializable(typeof(ComparisonConservatismTests.AbstractAnimal))]
 [JsonSerializable(typeof(ComparisonConservatismTests.AbstractDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ConcretePolymorphicAnimal))]

@@ -206,10 +206,11 @@ internal sealed class RecordedNode
     public string? UnknownDerivedTypeHandling { get; set; }
 
     /// <summary>
-    /// Whether the declared polymorphic base is abstract or an interface, so the framework reader requires a
-    /// discriminator before it can select a materializable derived type.
+    /// Whether the declared object type is abstract or an interface, so the framework reader requires
+    /// registered polymorphic metadata and a discriminator before it can select a materializable derived type.
+    /// This fact is recorded independently of whether polymorphic metadata exists.
     /// </summary>
-    public bool PolymorphismRequiresTypeDiscriminator { get; set; }
+    public bool ReaderMaterializationRequiresDiscriminator { get; set; }
 
     /// <summary>The structural children reached through element, key, value, constructor, or capture sources.</summary>
     public List<RecordedEdge> Edges { get; } = new();

@@ -87,8 +87,8 @@ internal static class ContractFactInteractions
             new[] { "serializer option set", "resolver classification", "converter classification" }),
         new(
             "polymorphism",
-            "polymorphic discriminator, reader materialization, and derived-type contract",
-            new[] { "polymorphic derived-type contract", "polymorphic reader materialization" }),
+            "polymorphic discriminator, abstract/interface reader materialization, and derived-type contract",
+            new[] { "polymorphic derived-type contract", "abstract/interface reader materialization" }),
     };
 
     public static IReadOnlyList<ContractFactInteraction> Entries { get; } = new ContractFactInteraction[]

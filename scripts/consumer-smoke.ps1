@@ -165,7 +165,7 @@ finally
     File.Delete(malformedPath);
 }
 
-Console.WriteLine("consumer conservatism passed: extension-data, polymorphism, and dictionary-materialization package regressions and positive controls");
+Console.WriteLine("consumer conservatism passed: extension-data, object-reader-materialization, polymorphism, and dictionary-materialization package regressions and positive controls");
 }
 finally
 {
@@ -360,6 +360,43 @@ static void RunPolymorphicMaterializationRegressions()
         JsonDriftReport concreteReport = Compare(concreteLater, earlier);
         RequireCompatible(concreteReport);
         RequireRule(concreteReport, "R10e.polymorphism.dispatch-added-concrete");
+
+        RequireCompatible(Compare(earlier, earlier));
+        string derivedDocument = JsonSerializer.Serialize(new AbstractDog { Name = "A" }, later);
+        if (JsonSerializer.Deserialize(derivedDocument, later) is not AbstractDog)
+        {
+            throw new InvalidOperationException("the packaged polymorphic derived-type positive control did not materialize");
+        }
+        RequireCompatible(Compare(later, later));
+
+        foreach (Type plainType in new[] { typeof(PlainAbstractAnimal), typeof(IPlainAnimal) })
+        {
+            JsonTypeInfo plainLater = TypeInfo(plainType, sourceGenerated);
+            RequireReadFailure<NotSupportedException>(earlierDocument, plainLater);
+
+            string plainPath = Path.Combine(Path.GetTempPath(), "jsondrift-plain-reader-" + Guid.NewGuid().ToString("N") + ".json");
+            try
+            {
+                JsonContract written = JsonBaseline.Create(earlier, plainPath, overwrite: false);
+                JsonContract read = JsonBaseline.Read(plainPath);
+                if (written.CanonicalJson != read.CanonicalJson)
+                {
+                    throw new InvalidOperationException("the packaged plain-reader baseline changed during write/read");
+                }
+
+                JsonDriftReport plainReport = JsonDrift.Compare(plainLater, read, JsonCompatibility.ReaderBackward);
+                RequireRejected(plainReport, JsonDriftClassification.Unsupported);
+                RequireRule(plainReport, "unsupported.object-materialization-unproven");
+
+                string metadataMode = sourceGenerated ? "source-generated" : "reflection";
+                string contractKind = plainType.IsInterface ? "interface" : "abstract";
+                Console.WriteLine($"plain reader materialization passed: mode={metadataMode}; contract={contractKind}; json={earlierDocument}; baselineRoundTrip=True; verdict={plainReport.Outcome}; assertion=threw");
+            }
+            finally
+            {
+                File.Delete(plainPath);
+            }
+        }
     }
 }
 
@@ -576,6 +613,16 @@ public sealed class ConcreteAnimal
     public string Name { get; set; } = string.Empty;
 }
 
+public abstract class PlainAbstractAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public interface IPlainAnimal
+{
+    string Name { get; set; }
+}
+
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(AbstractDog), "dog")]
 public abstract class AbstractAnimal
@@ -637,6 +684,8 @@ public sealed class ReadOnlyDictionaryHolder
 [JsonSerializable(typeof(OrdinaryAdditionV1))]
 [JsonSerializable(typeof(OrdinaryAdditionV2))]
 [JsonSerializable(typeof(ConcreteAnimal))]
+[JsonSerializable(typeof(PlainAbstractAnimal))]
+[JsonSerializable(typeof(IPlainAnimal))]
 [JsonSerializable(typeof(AbstractAnimal))]
 [JsonSerializable(typeof(AbstractDog))]
 [JsonSerializable(typeof(ConcretePolymorphicAnimal))]

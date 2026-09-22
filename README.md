@@ -164,7 +164,8 @@ The measured classification rules and their evidence remain in
   discriminator name with an unrecognized discriminator value. A concrete contract becoming an abstract or
   interface polymorphic contract is incompatible because the later reader requires a discriminator that
   earlier documents do not contain; adding dispatch while the declared base stays concrete retains the measured
-  compatible control. Concrete dictionary types without a measured
+  compatible control. A plain abstract or interface contract without registered polymorphic derived-type
+  metadata is unsupported because the reader cannot materialize it. Concrete dictionary types without a measured
   construction path are unsupported even when their key and value contracts match.
 - `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
