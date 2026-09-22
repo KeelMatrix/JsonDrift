@@ -36,6 +36,9 @@ All notable changes to this project are documented in this file. The format is b
 - The root and package READMEs now contain a complete source-generated first-success example with explicit
   baseline creation, a compatible change, and a rejected change; validation runs that same example from the
   built package.
+- Initial `net8.0` foundation for extracting deterministic `System.Text.Json` contract baselines.
+- Explicit canonical baseline creation, replacement, bounded reading, and `ReaderBackward` policy definition.
+- Deny-by-default support classification with deterministic format and safe parsing limits.
 
 ### Fixed
 
@@ -45,11 +48,3 @@ All notable changes to this project are documented in this file. The format is b
   isolated package consumption, and tag-only Trusted Publishing workflow before publication.
 - Release validation rejects impossible calendar dates and non-`Added` categories in the `0.1.0` first-release
   entry, with positive and negative contract fixtures.
-
-## [0.1.0] - 2026-09-18
-
-### Added
-
-- Initial `net8.0` foundation for extracting deterministic `System.Text.Json` contract baselines.
-- Explicit canonical baseline creation, replacement, bounded reading, and `ReaderBackward` policy definition.
-- Deny-by-default support classification with deterministic format and safe parsing limits.
