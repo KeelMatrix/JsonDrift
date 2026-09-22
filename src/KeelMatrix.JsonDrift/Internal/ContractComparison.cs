@@ -32,6 +32,8 @@ internal static class ContractComparison
     private const string Discriminator = "R10.polymorphism.discriminator-value-renamed";
     private const string DerivedAdded = "R10b.polymorphism.derived-type-added";
     private const string PolymorphismAddedAfterExtensionData = "R10c.polymorphism.extension-data-discriminator-collision";
+    private const string DiscriminatorRequired = "R10d.polymorphism.discriminator-required";
+    private const string PolymorphismAddedConcrete = "R10e.polymorphism.dispatch-added-concrete";
     private const string ExtensionRemoved = "R11.extension-data.removed";
     private const string ExtensionAdded = "R11b.extension-data.added";
     private const string ConstructorParameterAdded = "R12.binding.constructor-parameter-added";
@@ -1013,16 +1015,40 @@ internal static class ContractComparison
                 return;
             }
 
+            if (earlier is null && later is JsonElement addedPolymorphism &&
+                addedPolymorphism.GetProperty("requiresTypeDiscriminator").GetBoolean())
+            {
+                changes.Add(
+                    $"{path}.polymorphism",
+                    JsonDriftClassification.Incompatible,
+                    DiscriminatorRequired,
+                    "the later abstract or interface contract requires a type discriminator that earlier non-polymorphic documents do not contain");
+                return;
+            }
+
             changes.Add(
                 $"{path}.polymorphism",
                 later is null ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
-                later is null ? Discriminator : DerivedAdded,
+                later is null ? Discriminator : PolymorphismAddedConcrete,
                 later is null ? "the later contract no longer records the earlier polymorphic discriminator" : "the later contract adds polymorphic metadata while preserving the earlier contract");
             return;
         }
 
         JsonElement oldValue = earlier.Value;
         JsonElement newValue = later.Value;
+        bool oldRequiresDiscriminator = oldValue.GetProperty("requiresTypeDiscriminator").GetBoolean();
+        bool newRequiresDiscriminator = newValue.GetProperty("requiresTypeDiscriminator").GetBoolean();
+        if (oldRequiresDiscriminator != newRequiresDiscriminator)
+        {
+            changes.Add(
+                $"{path}.polymorphism",
+                newRequiresDiscriminator ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
+                DiscriminatorRequired,
+                newRequiresDiscriminator
+                    ? "the later abstract or interface contract requires a type discriminator that an earlier concrete base document may omit"
+                    : "the later concrete base can materialize documents with or without the earlier discriminator");
+        }
+
         if (!string.Equals(oldValue.GetProperty("discriminatorPropertyName").GetString(), newValue.GetProperty("discriminatorPropertyName").GetString(), StringComparison.Ordinal))
         {
             changes.Add($"{path}.polymorphism.discriminatorPropertyName", JsonDriftClassification.Incompatible, Discriminator, "the polymorphic discriminator property name changed");

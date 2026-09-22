@@ -30,6 +30,33 @@ internal sealed class CatV1Extended : AnimalV1Extended
 {
 }
 
+internal sealed class ConcreteAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(AbstractDog), "dog")]
+internal abstract class AbstractAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+internal sealed class AbstractDog : AbstractAnimal
+{
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(ConcreteDog), "dog")]
+internal class ConcretePolymorphicAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+internal sealed class ConcreteDog : ConcretePolymorphicAnimal
+{
+}
+
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(DogV2Renamed), "canine")]
 internal abstract class AnimalV2Renamed

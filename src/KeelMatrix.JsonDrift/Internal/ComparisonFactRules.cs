@@ -152,6 +152,11 @@ internal static class ComparisonFactRules
                     nameof(RecordedDerivedType.TypeName),
                     nameof(RecordedDerivedType.Node))).ToArray()),
         Compared(
+            "polymorphic reader materialization",
+            "R10d.polymorphism.discriminator-required",
+            "test:ConcreteToAbstractPolymorphicTransitionRequiresADiscriminator",
+            Props<RecordedNode>(nameof(RecordedNode.PolymorphismRequiresTypeDiscriminator))),
+        Compared(
             "nested contract graph",
             "recursive application of this rule table",
             "matrix:D03.canonical-document.recursive-type, test:ReferenceOnlyDanglingAndAmbiguousGraphsAreRejectedBeforeComparison",

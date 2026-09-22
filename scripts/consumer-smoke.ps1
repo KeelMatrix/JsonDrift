@@ -124,6 +124,7 @@ if (!independent.Changes.Any(change => change.RuleId == "R09.ignore.member-inclu
 }
 
 RunExtensionDataInteractionRegressions();
+RunPolymorphicMaterializationRegressions();
 RunDictionaryMaterializationRegressions();
 
 RequireCompatible(Compare(SmokeContext.Default.Int64, SmokeContext.Default.Int32));
@@ -300,6 +301,65 @@ static void RunDictionaryMaterializationRegressions()
 
         RequireCompatible(Compare(dictionary, dictionary));
         RequireCompatible(Compare(writableHolder, writableHolder));
+    }
+}
+
+static void RunPolymorphicMaterializationRegressions()
+{
+    const string EarlierDocument = "{\"Name\":\"A\"}";
+
+    foreach (bool sourceGenerated in new[] { false, true })
+    {
+        JsonTypeInfo earlier = TypeInfo(typeof(ConcreteAnimal), sourceGenerated);
+        JsonTypeInfo later = TypeInfo(typeof(AbstractAnimal), sourceGenerated);
+        string earlierDocument = JsonSerializer.Serialize(new ConcreteAnimal { Name = "A" }, earlier);
+        if (earlierDocument != EarlierDocument)
+        {
+            throw new InvalidOperationException($"the packaged concrete-animal witness changed: {earlierDocument}");
+        }
+
+        try
+        {
+            JsonSerializer.Deserialize(earlierDocument, later);
+            throw new InvalidOperationException("the packaged abstract polymorphic reader accepted a missing discriminator");
+        }
+        catch (NotSupportedException exception)
+        {
+            string expected = $"The JSON payload for polymorphic interface or abstract type '{typeof(AbstractAnimal)}' must specify a type discriminator.";
+            if (!exception.Message.Contains(expected, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("the packaged abstract polymorphic reader failed for an unexpected reason", exception);
+            }
+        }
+
+        string path = Path.Combine(Path.GetTempPath(), "jsondrift-polymorphic-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            JsonContract written = JsonBaseline.Create(earlier, path, overwrite: false);
+            JsonContract read = JsonBaseline.Read(path);
+            if (written.CanonicalJson != read.CanonicalJson)
+            {
+                throw new InvalidOperationException("the packaged polymorphic baseline changed during write/read");
+            }
+
+            JsonDriftReport report = JsonDrift.Compare(later, read, JsonCompatibility.ReaderBackward);
+            RequireRejected(report, JsonDriftClassification.Incompatible);
+            RequireRule(report, "R10d.polymorphism.discriminator-required");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        JsonTypeInfo concreteLater = TypeInfo(typeof(ConcretePolymorphicAnimal), sourceGenerated);
+        if (JsonSerializer.Deserialize(earlierDocument, concreteLater) is not ConcretePolymorphicAnimal)
+        {
+            throw new InvalidOperationException("the packaged concrete polymorphic positive control did not materialize");
+        }
+
+        JsonDriftReport concreteReport = Compare(concreteLater, earlier);
+        RequireCompatible(concreteReport);
+        RequireRule(concreteReport, "R10e.polymorphism.dispatch-added-concrete");
     }
 }
 
@@ -511,6 +571,33 @@ public sealed class OrdinaryAdditionV2
     public int Count { get; set; }
 }
 
+public sealed class ConcreteAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(AbstractDog), "dog")]
+public abstract class AbstractAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class AbstractDog : AbstractAnimal
+{
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(ConcreteDog), "dog")]
+public class ConcretePolymorphicAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class ConcreteDog : ConcretePolymorphicAnimal
+{
+}
+
 public sealed class WritableDictionaryHolder
 {
     public Dictionary<string, int> Values { get; set; } = new();
@@ -549,6 +636,11 @@ public sealed class ReadOnlyDictionaryHolder
 [JsonSerializable(typeof(ExtensionDataDog))]
 [JsonSerializable(typeof(OrdinaryAdditionV1))]
 [JsonSerializable(typeof(OrdinaryAdditionV2))]
+[JsonSerializable(typeof(ConcreteAnimal))]
+[JsonSerializable(typeof(AbstractAnimal))]
+[JsonSerializable(typeof(AbstractDog))]
+[JsonSerializable(typeof(ConcretePolymorphicAnimal))]
+[JsonSerializable(typeof(ConcreteDog))]
 [JsonSerializable(typeof(WritableDictionaryHolder))]
 [JsonSerializable(typeof(ReadOnlyDictionaryHolder))]
 public partial class SmokeContext : JsonSerializerContext

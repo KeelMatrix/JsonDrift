@@ -205,6 +205,12 @@ internal sealed class RecordedNode
     /// <summary>The recorded handling of unrecognized discriminators of a polymorphic contract.</summary>
     public string? UnknownDerivedTypeHandling { get; set; }
 
+    /// <summary>
+    /// Whether the declared polymorphic base is abstract or an interface, so the framework reader requires a
+    /// discriminator before it can select a materializable derived type.
+    /// </summary>
+    public bool PolymorphismRequiresTypeDiscriminator { get; set; }
+
     /// <summary>The structural children reached through element, key, value, constructor, or capture sources.</summary>
     public List<RecordedEdge> Edges { get; } = new();
 

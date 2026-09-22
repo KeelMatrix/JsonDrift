@@ -360,6 +360,63 @@ public sealed class ComparisonConservatismTests
     }
 
     [Fact]
+    public void ConcreteToAbstractPolymorphicTransitionRequiresADiscriminator()
+    {
+        const string EarlierDocument = "{\"Name\":\"A\"}";
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(ConcreteAnimal), sourceGenerated);
+            JsonTypeInfo later = TypeInfo(typeof(AbstractAnimal), sourceGenerated);
+
+            string earlierDocument = JsonSerializer.Serialize(new ConcreteAnimal { Name = "A" }, earlier);
+            Assert.Equal(EarlierDocument, earlierDocument);
+
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                JsonSerializer.Deserialize(earlierDocument, later));
+            Assert.Contains(
+                $"The JSON payload for polymorphic interface or abstract type '{typeof(AbstractAnimal)}' must specify a type discriminator.",
+                exception.Message,
+                StringComparison.Ordinal);
+
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "jsondrift-polymorphic-materialization-tests",
+                Guid.NewGuid().ToString("N"));
+            string baselinePath = Path.Combine(directory, "baseline.json");
+
+            try
+            {
+                JsonContract written = JsonBaseline.Create(earlier, baselinePath, overwrite: false);
+                JsonContract read = JsonBaseline.Read(baselinePath);
+                Assert.Equal(written.CanonicalJson, read.CanonicalJson);
+
+                JsonDriftReport report = JsonDrift.Compare(
+                    later,
+                    read,
+                    JsonCompatibility.ReaderBackward);
+
+                AssertRejected(report, JsonDriftClassification.Incompatible);
+                Assert.Contains(report.Changes, change =>
+                    change.Path == "root.polymorphism" &&
+                    change.RuleId == "R10d.polymorphism.discriminator-required");
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+
+            JsonTypeInfo concreteLater = TypeInfo(typeof(ConcretePolymorphicAnimal), sourceGenerated);
+            Assert.IsType<ConcretePolymorphicAnimal>(JsonSerializer.Deserialize(earlierDocument, concreteLater));
+            JsonDriftReport concreteReport = Compare(concreteLater, earlier);
+            AssertCompatible(concreteReport);
+            Assert.Contains(concreteReport.Changes, change =>
+                change.Path == "root.polymorphism" &&
+                change.RuleId == "R10e.polymorphism.dispatch-added-concrete");
+        }
+    }
+
+    [Fact]
     public void DictionaryMaterializationInteractionsFailClosed()
     {
         foreach (bool sourceGenerated in MetadataPaths())
@@ -738,6 +795,33 @@ public sealed class ComparisonConservatismTests
         public int BarkVolume { get; set; }
     }
 
+    internal sealed class ConcreteAnimal
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+    [JsonDerivedType(typeof(AbstractDog), "dog")]
+    internal abstract class AbstractAnimal
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class AbstractDog : AbstractAnimal
+    {
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+    [JsonDerivedType(typeof(ConcreteDog), "dog")]
+    internal class ConcretePolymorphicAnimal
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class ConcreteDog : ConcretePolymorphicAnimal
+    {
+    }
+
     internal enum CollisionState
     {
         Ready = 1,
@@ -798,6 +882,11 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataBeforePolymorphism))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithPolymorphism))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ConcreteAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.AbstractAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.AbstractDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ConcretePolymorphicAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ConcreteDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV1))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV2))]
 [JsonSerializable(typeof(ComparisonConservatismTests.WritableDictionaryHolder))]

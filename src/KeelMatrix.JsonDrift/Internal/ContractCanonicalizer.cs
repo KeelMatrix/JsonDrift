@@ -15,7 +15,7 @@ namespace KeelMatrix.JsonDrift.Internal;
 internal static class ContractCanonicalizer
 {
     /// <summary>The canonical baseline document format version.</summary>
-    public const int FormatVersion = 3;
+    public const int FormatVersion = 4;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
@@ -244,6 +244,7 @@ internal static class ContractCanonicalizer
         {
             ["discriminatorPropertyName"] = node.DiscriminatorPropertyName,
             ["unknownDerivedTypeHandling"] = node.UnknownDerivedTypeHandling,
+            ["requiresTypeDiscriminator"] = node.PolymorphismRequiresTypeDiscriminator,
             ["derivedTypes"] = derivedTypes,
         };
     }

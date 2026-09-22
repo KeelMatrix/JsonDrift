@@ -21,8 +21,9 @@ All notable changes to this project are documented in this file. The format is b
   presence constraints and the earlier extension-data key space are accounted for. Arbitrary unallowlisted
   serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
-- Canonical baseline format 3 records complete nested object, collection-element, and dictionary key/value
-  contract graphs, including dictionary construction capability, with bounded references for recursive types.
+- Canonical baseline format 4 records complete nested object, collection-element, and dictionary key/value
+  contract graphs, including dictionary construction capability and whether a polymorphic base requires a type
+  discriminator for reader materialization, with bounded references for recursive types.
 - Root scalar token changes, nested contract changes, and evidenced numeric range, signedness, fractional, and
   precision-loss transitions are classified fail-closed by the shipping comparison; unclassified scalar and
   numeric transitions are unsupported.

@@ -19,11 +19,17 @@ internal static class PolymorphismRules
         JsonTypeInfo animalV1Extended = reflection.GetTypeInfo(typeof(AnimalV1Extended));
         JsonTypeInfo animalV2Renamed = reflection.GetTypeInfo(typeof(AnimalV2Renamed));
         JsonTypeInfo animalV3Property = reflection.GetTypeInfo(typeof(AnimalV3Property));
+        JsonTypeInfo concreteAnimal = reflection.GetTypeInfo(typeof(ConcreteAnimal));
+        JsonTypeInfo abstractAnimal = reflection.GetTypeInfo(typeof(AbstractAnimal));
+        JsonTypeInfo concretePolymorphicAnimal = reflection.GetTypeInfo(typeof(ConcretePolymorphicAnimal));
 
         var dogV1 = new DogV1 { Name = "Rex" };
         var dogV1Extended = new DogV1Extended { Name = "Rex" };
         var dogV2Renamed = new DogV2Renamed { Name = "Rex" };
         var dogV3Property = new DogV3Property { Name = "Rex" };
+        var concrete = new ConcreteAnimal { Name = "Rex" };
+        var abstractDog = new AbstractDog { Name = "Rex" };
+        var concretePolymorphic = new ConcretePolymorphicAnimal { Name = "Rex" };
 
         results.AddRange(Check.Classify(
             "R10.polymorphism.discriminator-value-renamed",
@@ -50,6 +56,24 @@ internal static class PolymorphismRules
             WireProbe.Across(dogV1, animalV1, animalV1Extended),
             readerBackwardCompatible: true,
             WireProbe.Across(dogV1Extended, animalV1Extended, animalV1),
+            writerForwardCompatible: true));
+
+        results.AddRange(Check.Classify(
+            "R10d.polymorphism.discriminator-required",
+            "Polymorphic reader materialization change",
+            "a concrete non-polymorphic contract becomes an abstract polymorphic contract",
+            WireProbe.Across(concrete, concreteAnimal, abstractAnimal),
+            readerBackwardCompatible: false,
+            WireProbe.Across(abstractDog, abstractAnimal, concreteAnimal),
+            writerForwardCompatible: false));
+
+        results.AddRange(Check.Classify(
+            "R10e.polymorphism.dispatch-added-concrete",
+            "Polymorphic reader materialization change",
+            "polymorphic dispatch is added while the declared base remains concrete",
+            WireProbe.Across(concrete, concreteAnimal, concretePolymorphicAnimal),
+            readerBackwardCompatible: true,
+            WireProbe.Across(concretePolymorphic, concretePolymorphicAnimal, concreteAnimal),
             writerForwardCompatible: true));
 
         results.Add(Check.Compatible(

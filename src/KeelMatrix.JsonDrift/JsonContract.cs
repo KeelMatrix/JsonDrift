@@ -11,9 +11,10 @@ namespace KeelMatrix.JsonDrift;
 /// This model describes structural JSON wire compatibility only. It is not a source/API compatibility model,
 /// and it cannot prove business or semantic compatibility. A contract can be explicitly unsupported when the
 /// serializer metadata contains a feature that JsonDrift has not measured; unsupported contracts must never be
-/// treated as compatible. Format version 3 records complete nested object, collection-element, and dictionary
+/// treated as compatible. Format version 4 records complete nested object, collection-element, and dictionary
 /// key/value metadata, including dictionary construction capability, with bounded references for repeated types,
-/// and records the JSON token kind of scalar nodes for fail-closed comparison. ReaderBackward comparison retains
+/// records polymorphic reader materialization constraints, and records the JSON token kind of scalar nodes for
+/// fail-closed comparison. ReaderBackward comparison retains
 /// nullable value acceptance at every value slot, requires evidenced collection and dictionary materialization,
 /// compares enum token domains and member materialization, and rejects malformed reference-only graphs before
 /// comparison.
@@ -35,7 +36,13 @@ public sealed class JsonContract
     private static readonly string[] EnumWireProperty = { "enumWire" };
     private static readonly string[] ReferenceProperty = { "reference" };
     private static readonly string[] TokenKinds = { "boolean", "string", "number", "object", "array", "any", "opaque" };
-    private static readonly string[] PolymorphismRequired = { "discriminatorPropertyName", "unknownDerivedTypeHandling", "derivedTypes" };
+    private static readonly string[] PolymorphismRequired =
+    {
+        "discriminatorPropertyName",
+        "unknownDerivedTypeHandling",
+        "requiresTypeDiscriminator",
+        "derivedTypes",
+    };
     private static readonly string[] AttributeRequired = { "type", "arguments" };
     private static readonly string[] AttributeArgumentRequired = { "name", "value" };
     private static readonly string[] MemberOptional = { "reason", "enumWire", "shape", "included", "constructorBinding" };
@@ -60,7 +67,7 @@ public sealed class JsonContract
         this.usesSourceGeneratedMetadata = usesSourceGeneratedMetadata;
     }
 
-    /// <summary>Gets the canonical baseline format version of this contract; the current version is 3.</summary>
+    /// <summary>Gets the canonical baseline format version of this contract; the current version is 4.</summary>
     public int FormatVersion { get; }
 
     /// <summary>Gets the stable type name of the selected root contract.</summary>
@@ -622,6 +629,7 @@ public sealed class JsonContract
             $"{context} polymorphism");
         RequireString(polymorphism, "discriminatorPropertyName", context, allowEmpty: false);
         RequireString(polymorphism, "unknownDerivedTypeHandling", context, allowEmpty: false);
+        RequireBoolean(polymorphism, "requiresTypeDiscriminator", context);
 
         JsonElement derivedTypes = polymorphism.GetProperty("derivedTypes");
         if (derivedTypes.ValueKind != JsonValueKind.Array)

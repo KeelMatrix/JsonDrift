@@ -336,6 +336,7 @@ internal static class MetadataTraversal
 
             node.DiscriminatorPropertyName = polymorphism.TypeDiscriminatorPropertyName;
             node.UnknownDerivedTypeHandling = polymorphism.UnknownDerivedTypeHandling.ToString();
+            node.PolymorphismRequiresTypeDiscriminator = info.Type.IsAbstract || info.Type.IsInterface;
 
             foreach (JsonDerivedType derived in polymorphism.DerivedTypes.OrderBy(
                 static derived => derived.TypeDiscriminator?.ToString(),
