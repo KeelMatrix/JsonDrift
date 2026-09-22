@@ -164,7 +164,7 @@ finally
     File.Delete(malformedPath);
 }
 
-Console.WriteLine("consumer conservatism passed: extension-data and dictionary-materialization package regressions and positive controls");
+Console.WriteLine("consumer conservatism passed: extension-data, polymorphism, and dictionary-materialization package regressions and positive controls");
 }
 finally
 {
@@ -236,6 +236,39 @@ static void RunExtensionDataInteractionRegressions()
         JsonDriftReport enumCollision = Compare(enumLater, extensionEarlier);
         RequireRejected(enumCollision, JsonDriftClassification.Unsupported);
         RequireRule(enumCollision, "R01.property-add.extension-data-key-collision");
+
+        JsonTypeInfo polymorphismEarlier = TypeInfo(typeof(ExtensionDataBeforePolymorphism), sourceGenerated);
+        JsonTypeInfo polymorphismLater = TypeInfo(typeof(ExtensionDataWithPolymorphism), sourceGenerated);
+        using JsonDocument unknownDiscriminator = JsonDocument.Parse("\"unknown\"");
+        var polymorphismInstance = new ExtensionDataBeforePolymorphism
+        {
+            Extra = new Dictionary<string, JsonElement>
+            {
+                ["$type"] = unknownDiscriminator.RootElement.Clone(),
+            },
+        };
+        string polymorphismDocument = JsonSerializer.Serialize(polymorphismInstance, polymorphismEarlier);
+        if (polymorphismDocument != "{\"$type\":\"unknown\"}")
+        {
+            throw new InvalidOperationException($"the packaged extension-data witness changed: {polymorphismDocument}");
+        }
+
+        try
+        {
+            JsonSerializer.Deserialize(polymorphismDocument, polymorphismLater);
+            throw new InvalidOperationException("the packaged polymorphic reader accepted an unknown discriminator");
+        }
+        catch (JsonException exception)
+        {
+            if (!exception.Message.Contains("Read unrecognized type discriminator id 'unknown'.", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("the packaged polymorphic reader failed for an unexpected reason", exception);
+            }
+        }
+
+        JsonDriftReport polymorphismCollision = Compare(polymorphismLater, polymorphismEarlier);
+        RequireRejected(polymorphismCollision, JsonDriftClassification.Unsupported);
+        RequireRule(polymorphismCollision, "R10c.polymorphism.extension-data-discriminator-collision");
 
         RequireCompatible(Compare(
             TypeInfo(typeof(OrdinaryAdditionV2), sourceGenerated),
@@ -442,6 +475,25 @@ public sealed class ExtensionDataWithState
     public Dictionary<string, JsonElement> Extra { get; set; } = new();
 }
 
+public sealed class ExtensionDataBeforePolymorphism
+{
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(ExtensionDataDog), "dog")]
+public class ExtensionDataWithPolymorphism
+{
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public sealed class ExtensionDataDog : ExtensionDataWithPolymorphism
+{
+    public int BarkVolume { get; set; }
+}
+
 public enum CollisionState
 {
     Ready = 1,
@@ -492,6 +544,9 @@ public sealed class ReadOnlyDictionaryHolder
 [JsonSerializable(typeof(ExtensionDataOnly))]
 [JsonSerializable(typeof(ExtensionDataWithCount))]
 [JsonSerializable(typeof(ExtensionDataWithState))]
+[JsonSerializable(typeof(ExtensionDataBeforePolymorphism))]
+[JsonSerializable(typeof(ExtensionDataWithPolymorphism))]
+[JsonSerializable(typeof(ExtensionDataDog))]
 [JsonSerializable(typeof(OrdinaryAdditionV1))]
 [JsonSerializable(typeof(OrdinaryAdditionV2))]
 [JsonSerializable(typeof(WritableDictionaryHolder))]

@@ -46,6 +46,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- Adding polymorphic dispatch to an object with earlier writable extension data now reports `Unsupported` when
+  the later discriminator property overlaps the earlier arbitrary key space, preventing unknown discriminator
+  values from being accepted as reader-backward compatible.
 - Required property renames are no longer accepted merely because later extension data captures the old key;
   destination requiredness and constructor-presence constraints are evaluated first.
 - Optional member additions and rename destinations now fail closed when an earlier extension-data key/value

@@ -176,7 +176,7 @@ internal static class ContractFactInteractions
 
         Interacts("extension-data", "reference-graph", "extension-data key/value contracts are traversed recursively and their unsupported descendants fail the whole contract", "matrix:R14.converter.opaque-extension-data-value"),
         Interacts("extension-data", "serializer-configuration", "unmapped-member handling and resolver changes can alter capture behavior, so unmeasured settings fail closed", "matrix:A01.adversarial.options-unmapped-member-handling"),
-        NonInteracting("extension-data", "polymorphism", "recognized discriminator keys are consumed by polymorphic dispatch rather than treated as unmatched extension data; derived extension-data members are compared recursively"),
+        Interacts("extension-data", "polymorphism", "adding polymorphic dispatch can reinterpret an earlier extension-data key as the discriminator and reject an unrecognized value", "test:ExtensionDataUnknownDiscriminatorFailsClosedWhenPolymorphismIsAdded"),
 
         Interacts("reference-graph", "serializer-configuration", "resolver, converter, and option gates are applied to every recursively reached node", "matrix:R14.converter.opaque-object-graph-depth-2"),
         Interacts("reference-graph", "polymorphism", "registered derived types and nested polymorphic bases are part of the bounded recursive graph", "matrix:A01.adversarial.derived-polymorphic-base"),

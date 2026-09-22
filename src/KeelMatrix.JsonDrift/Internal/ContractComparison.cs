@@ -31,6 +31,7 @@ internal static class ContractComparison
     private const string IgnoreIncluded = "R09.ignore.member-included";
     private const string Discriminator = "R10.polymorphism.discriminator-value-renamed";
     private const string DerivedAdded = "R10b.polymorphism.derived-type-added";
+    private const string PolymorphismAddedAfterExtensionData = "R10c.polymorphism.extension-data-discriminator-collision";
     private const string ExtensionRemoved = "R11.extension-data.removed";
     private const string ExtensionAdded = "R11b.extension-data.added";
     private const string ConstructorParameterAdded = "R12.binding.constructor-parameter-added";
@@ -480,7 +481,8 @@ internal static class ContractComparison
                 hasOldPolymorphism ? oldPolymorphism : null,
                 hasNewPolymorphism ? newPolymorphism : null,
                 path,
-                context);
+                context,
+                oldExtension);
         }
     }
 
@@ -995,11 +997,22 @@ internal static class ContractComparison
         JsonElement? earlier,
         JsonElement? later,
         string path,
-        ComparisonContext context)
+        ComparisonContext context,
+        bool earlierExtensionData)
     {
         ChangeSet changes = context.Changes;
         if (earlier is null || later is null)
         {
+            if (earlier is null && earlierExtensionData)
+            {
+                changes.Add(
+                    $"{path}.polymorphism",
+                    JsonDriftClassification.Unsupported,
+                    PolymorphismAddedAfterExtensionData,
+                    "the earlier extension-data key space can contain the later discriminator property name with an unrecognized discriminator value; later-reader preservation is unproven");
+                return;
+            }
+
             changes.Add(
                 $"{path}.polymorphism",
                 later is null ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,

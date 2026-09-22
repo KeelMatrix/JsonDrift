@@ -307,6 +307,59 @@ public sealed class ComparisonConservatismTests
     }
 
     [Fact]
+    public void ExtensionDataUnknownDiscriminatorFailsClosedWhenPolymorphismIsAdded()
+    {
+        const string EarlierDocument = "{\"$type\":\"unknown\"}";
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(ExtensionDataBeforePolymorphism), sourceGenerated);
+            JsonTypeInfo later = TypeInfo(typeof(ExtensionDataWithPolymorphism), sourceGenerated);
+            using JsonDocument unknown = JsonDocument.Parse("\"unknown\"");
+            var instance = new ExtensionDataBeforePolymorphism
+            {
+                Extra = new Dictionary<string, JsonElement>
+                {
+                    ["$type"] = unknown.RootElement.Clone(),
+                },
+            };
+
+            string earlierDocument = JsonSerializer.Serialize(instance, earlier);
+            Assert.Equal(EarlierDocument, earlierDocument);
+            JsonException exception = Assert.Throws<JsonException>(() =>
+                JsonSerializer.Deserialize(earlierDocument, later));
+            Assert.Contains("Read unrecognized type discriminator id 'unknown'.", exception.Message, StringComparison.Ordinal);
+
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "jsondrift-polymorphism-tests",
+                Guid.NewGuid().ToString("N"));
+            string baselinePath = Path.Combine(directory, "baseline.json");
+
+            try
+            {
+                JsonContract written = JsonBaseline.Create(earlier, baselinePath, overwrite: false);
+                JsonContract read = JsonBaseline.Read(baselinePath);
+                Assert.Equal(written.CanonicalJson, read.CanonicalJson);
+
+                JsonDriftReport report = JsonDrift.Compare(
+                    later,
+                    baselinePath,
+                    JsonCompatibility.ReaderBackward);
+
+                AssertRejected(report, JsonDriftClassification.Unsupported);
+                Assert.Contains(report.Changes, change =>
+                    change.Path == "root.polymorphism" &&
+                    change.RuleId == "R10c.polymorphism.extension-data-discriminator-collision");
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void DictionaryMaterializationInteractionsFailClosed()
     {
         foreach (bool sourceGenerated in MetadataPaths())
@@ -666,6 +719,25 @@ public sealed class ComparisonConservatismTests
         public Dictionary<string, JsonElement> Extra { get; set; } = new();
     }
 
+    internal sealed class ExtensionDataBeforePolymorphism
+    {
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+    [JsonDerivedType(typeof(ExtensionDataDog), "dog")]
+    internal class ExtensionDataWithPolymorphism
+    {
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal sealed class ExtensionDataDog : ExtensionDataWithPolymorphism
+    {
+        public int BarkVolume { get; set; }
+    }
+
     internal enum CollisionState
     {
         Ready = 1,
@@ -723,6 +795,9 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataOnly))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithCount))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithState))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataBeforePolymorphism))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithPolymorphism))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV1))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV2))]
 [JsonSerializable(typeof(ComparisonConservatismTests.WritableDictionaryHolder))]

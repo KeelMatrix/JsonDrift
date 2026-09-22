@@ -147,6 +147,11 @@ and the earlier contract has no extension-data key space that can shadow the des
 renamed destination remains incompatible; an earlier extension-data collision is unsupported. An arbitrary
 unallowlisted serialization attribute or value, including an unmeasured rename, is unsupported.
 
+Adding polymorphic dispatch to an object with earlier writable extension data is unsupported. The earlier
+arbitrary key space can already contain the later discriminator property name with a value that the later
+reader does not recognize; `Compare` reports `R10c.polymorphism.extension-data-discriminator-collision`
+instead of accepting that transition.
+
 `JsonDrift.Compare` also accepts an already-extracted `JsonContract`. After an intentional change, use
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.
 Reading never rewrites a baseline.

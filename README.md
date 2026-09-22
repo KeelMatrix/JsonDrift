@@ -159,8 +159,10 @@ The measured classification rules and their evidence remain in
 - An optional `[JsonPropertyName]` rename is compatible through later `[JsonExtensionData]` only when the
   destination has no independent presence constraint and the earlier contract has no extension-data key space
   that can shadow the new name. Required rename destinations remain incompatible; additions or renames that
-  collide with an earlier extension-data key space are unsupported. Concrete dictionary types without a
-  measured construction path are unsupported even when their key and value contracts match.
+  collide with an earlier extension-data key space are unsupported. Adding polymorphic dispatch to an object
+  with earlier writable extension data is also unsupported because the earlier key space can contain the new
+  discriminator name with an unrecognized discriminator value. Concrete dictionary types without a measured
+  construction path are unsupported even when their key and value contracts match.
 - `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
   incompatible or unsupported result.
