@@ -47,6 +47,16 @@ internal enum RecordedCollectionSemantics
     Unclassified,
 }
 
+/// <summary>The construction behavior established for a dictionary materializer.</summary>
+internal enum RecordedDictionaryMaterialization
+{
+    /// <summary>The framework reader constructs and populates this concrete dictionary shape.</summary>
+    Constructible,
+
+    /// <summary>No committed wire witness establishes that the framework reader can construct the type.</summary>
+    Unclassified,
+}
+
 /// <summary>One converter the traversal recorded, with the source and the path that declared or registered it.</summary>
 internal sealed record RecordedConverterFact(
     MetadataSourceKind Source,
@@ -173,6 +183,9 @@ internal sealed class RecordedNode
 
     /// <summary>True when the value type of a dictionary contract was recorded.</summary>
     public bool ValueTypeRecorded { get; set; }
+
+    /// <summary>The measured construction behavior of a dictionary materializer.</summary>
+    public RecordedDictionaryMaterialization? DictionaryMaterialization { get; set; }
 
     /// <summary>Why this node could not be recorded, when it could not.</summary>
     public RecordedNodeUnavailableReason? UnavailableReason { get; set; }

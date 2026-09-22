@@ -141,19 +141,26 @@ A reflection/options comparison is also supported. In a complete program, supply
 `JsonSerializerOptions` with an explicit `DefaultJsonTypeInfoResolver` and call the corresponding generic
 overloads; the source-generated program above is the complete first-success path.
 
-A measured, allowlisted `[JsonPropertyName]` rename produces an incompatible change. An arbitrary
+A measured, allowlisted `[JsonPropertyName]` rename is normally incompatible. It is compatible through later
+`[JsonExtensionData]` only when the destination is optional, has no enforced constructor presence constraint,
+and the earlier contract has no extension-data key space that can shadow the destination name. A required
+renamed destination remains incompatible; an earlier extension-data collision is unsupported. An arbitrary
 unallowlisted serialization attribute or value, including an unmeasured rename, is unsupported.
 
 `JsonDrift.Compare` also accepts an already-extracted `JsonContract`. After an intentional change, use
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.
 Reading never rewrites a baseline.
 
-Canonical baseline documents use `formatVersion: 2`. The format records complete nested object, collection
-element, and dictionary key/value contract nodes, while repeated types use validated bounded references so
-recursive contracts terminate. Nullable value slots, member materialization capability, collection order and
-multiplicity semantics, and enum integer-token acceptance are recorded and compared. Collection compatibility
+Canonical baseline documents use `formatVersion: 3`. The format records complete nested object, collection
+element, and dictionary key/value contract nodes plus dictionary construction capability, while repeated types
+use validated bounded references so recursive contracts terminate. Nullable value slots, member materialization
+capability, collection order and multiplicity semantics, and enum integer-token acceptance are recorded and
+compared. Collection compatibility
 is limited to measured materializers such as `List<T>` and arrays; other enumerable materializers are
-unsupported. Scalar nodes record their JSON token kind. Malformed, foreign, unsupported, future,
+unsupported. Dictionary support likewise requires a measured concrete materializer: `Dictionary<TKey,TValue>`
+is supported, while an unproven concrete type such as `ReadOnlyDictionary<TKey,TValue>` is unsupported even
+when key and value contracts match. Scalar nodes record their JSON token kind. Malformed, foreign, unsupported,
+future,
 oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated,
 stable in ordering, and contain no timestamps or host paths.
 

@@ -35,6 +35,7 @@ internal static class RuleIds
     public const string UnsupportedAttributeUnlisted = "unsupported.attribute-unlisted";
     public const string UnsupportedConverterConfigurationUnlisted = "unsupported.converter-configuration-unlisted";
     public const string UnsupportedCollectionSemanticsUnproven = "unsupported.collection-semantics-unproven";
+    public const string UnsupportedDictionaryMaterializationUnproven = "unsupported.dictionary-materialization-unproven";
     public const string UnsupportedMemberMaterializationUnproven = "unsupported.member-materialization-unproven";
 }
 
@@ -70,7 +71,7 @@ internal static class RuleCatalog
         new(
             RuleIds.SupportedDictionary,
             true,
-            "a dictionary contract whose key and value types were recorded and are classifiable"),
+            "a constructible dictionary contract whose key and value types were recorded and are classifiable"),
         new(
             RuleIds.SupportedScalar,
             true,
@@ -144,6 +145,10 @@ internal static class RuleCatalog
             false,
             "the enumerable materializer has no measured witness that it preserves item order and multiplicity"),
         new(
+            RuleIds.UnsupportedDictionaryMaterializationUnproven,
+            false,
+            "the dictionary materializer has no measured witness that the framework reader can construct and populate it"),
+        new(
             RuleIds.UnsupportedMemberMaterializationUnproven,
             false,
             "a serialized member has no structural setter or constructor binding that can materialize its value"),
@@ -213,6 +218,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedOptionUnlisted,
             RuleIds.UnsupportedAttributeUnlisted,
             RuleIds.UnsupportedConverterConfigurationUnlisted,
+            RuleIds.UnsupportedDictionaryMaterializationUnproven,
         },
         RecordedNodeKind.Scalar => new[]
         {

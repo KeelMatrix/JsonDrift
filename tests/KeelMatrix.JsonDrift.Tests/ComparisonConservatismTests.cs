@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -28,6 +29,39 @@ public sealed class ComparisonConservatismTests
             .ToArray();
 
         Assert.Empty(missingTestWitnesses);
+    }
+
+    [Fact]
+    public void EveryFactFamilyPairIsClassifiedAndNewFamilyFailsClosed()
+    {
+        Assert.Empty(ContractFactInteractions.ValidateCoverage());
+
+        string[] methods = typeof(ComparisonConservatismTests)
+            .GetMethods()
+            .Select(static method => method.Name)
+            .ToArray();
+        string[] missingTestWitnesses = ContractFactInteractions.Entries
+            .Where(static entry => entry.Witness is not null)
+            .Select(static entry => entry.Witness!)
+            .Where(static witness => witness.StartsWith("test:", StringComparison.Ordinal))
+            .Select(static witness => witness["test:".Length..])
+            .Where(witness => !methods.Contains(witness, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Empty(missingTestWitnesses);
+
+        ContractFactFamily throwaway = new(
+            "throwaway-family",
+            "throwaway family",
+            Array.Empty<string>());
+        IReadOnlyList<string> errors = ContractFactInteractions.ValidateCoverage(
+            ContractFactInteractions.Families.Append(throwaway).ToArray(),
+            ContractFactInteractions.Entries);
+
+        Assert.Equal(ContractFactInteractions.Families.Count, errors.Count(error =>
+            error.StartsWith("fact-family interaction is unclassified:", StringComparison.Ordinal) &&
+            error.Contains("throwaway-family", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -170,6 +204,156 @@ public sealed class ComparisonConservatismTests
 
             JsonTypeInfo ordinaryAddition = TypeInfo(typeof(OrdinaryAddition), sourceGenerated);
             AssertCompatible(Compare(ordinaryAddition, beforeConstructorAddition));
+        }
+    }
+
+    [Fact]
+    public void RequiredRenameWithExtensionDataDoesNotBypassDestinationConstraints()
+    {
+        const string EarlierDocument = "{\"account_id\":\"A\"}";
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(RequiredRenameWithExtensionDataV1), sourceGenerated);
+            JsonTypeInfo later = TypeInfo(typeof(RequiredRenameWithExtensionDataV2), sourceGenerated);
+            JsonContract earlierContract = JsonDrift.Extract(earlier);
+
+            Assert.True(earlierContract.IsSupported);
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(EarlierDocument, later));
+
+            JsonDriftReport report = JsonDrift.Compare(
+                later,
+                RoundTripBaseline(earlierContract),
+                JsonCompatibility.ReaderBackward);
+
+            AssertRejected(report, JsonDriftClassification.Incompatible);
+            Assert.Contains(report.Changes, change =>
+                change.Path == "root.accountId" &&
+                change.RuleId == "R04.requiredness.optional-to-required");
+
+            JsonTypeInfo safeEarlier = TypeInfo(typeof(OptionalRenameV1), sourceGenerated);
+            JsonTypeInfo safeLater = TypeInfo(typeof(OptionalRenameV2WithExtensionData), sourceGenerated);
+            var rebound = Assert.IsType<OptionalRenameV2WithExtensionData>(
+                JsonSerializer.Deserialize(EarlierDocument, safeLater));
+            Assert.Equal("A", rebound.Extra["account_id"].GetString());
+
+            JsonDriftReport safeReport = JsonDrift.Compare(
+                safeLater,
+                RoundTripBaseline(JsonDrift.Extract(safeEarlier)),
+                JsonCompatibility.ReaderBackward);
+            AssertCompatible(safeReport);
+            Assert.Contains(safeReport.Changes, change =>
+                change.RuleId == "R03.serialized-name.mitigated-by-extension-data");
+        }
+    }
+
+    [Fact]
+    public void ExtensionDataKeyCollisionsFailClosedAcrossTokenKinds()
+    {
+        string[] tokens = { "\"not-a-number\"", "true", "{}", "[]", "null" };
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(ExtensionDataOnly), sourceGenerated);
+            JsonTypeInfo later = TypeInfo(typeof(ExtensionDataWithCount), sourceGenerated);
+            JsonContract earlierContract = JsonDrift.Extract(earlier);
+            Assert.True(earlierContract.IsSupported);
+
+            foreach (string token in tokens)
+            {
+                using JsonDocument value = JsonDocument.Parse(token);
+                var instance = new ExtensionDataOnly
+                {
+                    Extra = new Dictionary<string, JsonElement>
+                    {
+                        ["Count"] = value.RootElement.Clone(),
+                    },
+                };
+                string earlierDocument = JsonSerializer.Serialize(instance, earlier);
+                Assert.Equal($"{{\"Count\":{token}}}", earlierDocument);
+                Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(earlierDocument, later));
+            }
+
+            JsonDriftReport report = JsonDrift.Compare(
+                later,
+                RoundTripBaseline(earlierContract),
+                JsonCompatibility.ReaderBackward);
+            AssertRejected(report, JsonDriftClassification.Unsupported);
+            Assert.Contains(report.Changes, change =>
+                change.Path == "root.Count" &&
+                change.RuleId == "R01.property-add.extension-data-key-collision");
+
+            JsonTypeInfo laterEnum = TypeInfo(typeof(ExtensionDataWithState), sourceGenerated);
+            const string EnumDocument = "{\"State\":\"not-a-state\"}";
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(EnumDocument, laterEnum));
+            JsonDriftReport enumReport = JsonDrift.Compare(
+                laterEnum,
+                RoundTripBaseline(earlierContract),
+                JsonCompatibility.ReaderBackward);
+            AssertRejected(enumReport, JsonDriftClassification.Unsupported);
+            Assert.Contains(enumReport.Changes, change =>
+                change.Path == "root.State" &&
+                change.RuleId == "R01.property-add.extension-data-key-collision");
+
+            JsonTypeInfo ordinaryEarlier = TypeInfo(typeof(OrdinaryMemberV1), sourceGenerated);
+            JsonTypeInfo ordinaryLater = TypeInfo(typeof(OrdinaryMemberV2), sourceGenerated);
+            string ordinaryDocument = JsonSerializer.Serialize(new OrdinaryMemberV1 { Id = 7 }, ordinaryEarlier);
+            Assert.IsType<OrdinaryMemberV2>(JsonSerializer.Deserialize(ordinaryDocument, ordinaryLater));
+            AssertCompatible(JsonDrift.Compare(
+                ordinaryLater,
+                RoundTripBaseline(JsonDrift.Extract(ordinaryEarlier)),
+                JsonCompatibility.ReaderBackward));
+        }
+    }
+
+    [Fact]
+    public void DictionaryMaterializationInteractionsFailClosed()
+    {
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlierRoot = TypeInfo(typeof(Dictionary<string, int>), sourceGenerated);
+            JsonTypeInfo laterRoot = TypeInfo(typeof(ReadOnlyDictionary<string, int>), sourceGenerated);
+            JsonContract earlierRootContract = JsonDrift.Extract(earlierRoot);
+            string rootDocument = JsonSerializer.Serialize(
+                new Dictionary<string, int> { ["a"] = 1 },
+                earlierRoot);
+
+            Assert.Equal("{\"a\":1}", rootDocument);
+            Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize(rootDocument, laterRoot));
+            JsonDriftReport rootReport = JsonDrift.Compare(
+                laterRoot,
+                RoundTripBaseline(earlierRootContract),
+                JsonCompatibility.ReaderBackward);
+            AssertRejected(rootReport, JsonDriftClassification.Unsupported);
+            Assert.Contains(rootReport.Changes, change =>
+                change.Path == "root" &&
+                change.RuleId == "unsupported.dictionary-materialization-unproven");
+
+            JsonTypeInfo earlierNested = TypeInfo(typeof(WritableDictionaryHolder), sourceGenerated);
+            JsonTypeInfo laterNested = TypeInfo(typeof(ReadOnlyDictionaryHolder), sourceGenerated);
+            JsonContract earlierNestedContract = JsonDrift.Extract(earlierNested);
+            string nestedDocument = JsonSerializer.Serialize(
+                new WritableDictionaryHolder { Values = { ["a"] = 1 } },
+                earlierNested);
+
+            Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize(nestedDocument, laterNested));
+            JsonDriftReport nestedReport = JsonDrift.Compare(
+                laterNested,
+                RoundTripBaseline(earlierNestedContract),
+                JsonCompatibility.ReaderBackward);
+            AssertRejected(nestedReport, JsonDriftClassification.Unsupported);
+            Assert.Contains(nestedReport.Changes, change =>
+                change.Path == "root.Values" &&
+                change.RuleId == "unsupported.dictionary-materialization-unproven");
+
+            AssertCompatible(JsonDrift.Compare(
+                earlierRoot,
+                RoundTripBaseline(earlierRootContract),
+                JsonCompatibility.ReaderBackward));
+            AssertCompatible(JsonDrift.Compare(
+                earlierNested,
+                RoundTripBaseline(earlierNestedContract),
+                JsonCompatibility.ReaderBackward));
         }
     }
 
@@ -424,6 +608,91 @@ public sealed class ComparisonConservatismTests
 
         public RecursiveValue? Next { get; set; }
     }
+
+    internal sealed class RequiredRenameWithExtensionDataV1
+    {
+        [JsonRequired]
+        [JsonPropertyName("account_id")]
+        public string? AccountId { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal sealed class RequiredRenameWithExtensionDataV2
+    {
+        [JsonRequired]
+        [JsonPropertyName("accountId")]
+        public string? AccountId { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal sealed class OptionalRenameV1
+    {
+        [JsonPropertyName("account_id")]
+        public string? AccountId { get; set; }
+    }
+
+    internal sealed class OptionalRenameV2WithExtensionData
+    {
+        [JsonPropertyName("accountId")]
+        public string? AccountId { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal sealed class ExtensionDataOnly
+    {
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal sealed class ExtensionDataWithCount
+    {
+        public int Count { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal sealed class ExtensionDataWithState
+    {
+        public CollisionState State { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = new();
+    }
+
+    internal enum CollisionState
+    {
+        Ready = 1,
+    }
+
+    internal sealed class OrdinaryMemberV1
+    {
+        public int Id { get; set; }
+    }
+
+    internal sealed class OrdinaryMemberV2
+    {
+        public int Id { get; set; }
+
+        public int Count { get; set; }
+    }
+
+    internal sealed class WritableDictionaryHolder
+    {
+        public Dictionary<string, int> Values { get; set; } = new();
+    }
+
+    internal sealed class ReadOnlyDictionaryHolder
+    {
+        public ReadOnlyDictionary<string, int> Values { get; set; } =
+            new(new Dictionary<string, int>());
+    }
 }
 
 [JsonSerializable(typeof(int?))]
@@ -447,6 +716,18 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(ComparisonConservatismTests.ConstructorRequiredAddition))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryAddition))]
 [JsonSerializable(typeof(ComparisonConservatismTests.RecursiveValue))]
+[JsonSerializable(typeof(ComparisonConservatismTests.RequiredRenameWithExtensionDataV1))]
+[JsonSerializable(typeof(ComparisonConservatismTests.RequiredRenameWithExtensionDataV2))]
+[JsonSerializable(typeof(ComparisonConservatismTests.OptionalRenameV1))]
+[JsonSerializable(typeof(ComparisonConservatismTests.OptionalRenameV2WithExtensionData))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataOnly))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithCount))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ExtensionDataWithState))]
+[JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV1))]
+[JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV2))]
+[JsonSerializable(typeof(ComparisonConservatismTests.WritableDictionaryHolder))]
+[JsonSerializable(typeof(ComparisonConservatismTests.ReadOnlyDictionaryHolder))]
+[JsonSerializable(typeof(ReadOnlyDictionary<string, int>))]
 internal sealed partial class ComparisonSourceContext : JsonSerializerContext
 {
 }

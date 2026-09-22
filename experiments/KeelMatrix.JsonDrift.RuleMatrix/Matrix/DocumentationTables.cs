@@ -18,6 +18,9 @@ internal static class DocumentationTables
     /// <summary>The heading that starts the recorded-fact comparison rule table.</summary>
     public const string FactRuleHeading = "### Recorded-fact comparison rule table";
 
+    /// <summary>The heading that starts the contract-fact interaction table.</summary>
+    public const string FactInteractionHeading = "### Contract-fact interaction table";
+
     private const string ScalarAllowlistPrefix = "Allowlisted framework scalar types:";
     private const string ConverterAllowlistPrefix = "Allowlisted framework converters:";
     private const string ResolverAllowlistPrefix = "Allowlisted metadata resolvers:";

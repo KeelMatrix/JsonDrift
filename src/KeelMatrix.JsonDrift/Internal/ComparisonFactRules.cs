@@ -71,6 +71,11 @@ internal static class ComparisonFactRules
             "test:CollectionTransitionsRequireOrderingAndMultiplicityPreservation",
             Props<RecordedNode>(nameof(RecordedNode.CollectionSemantics))),
         Compared(
+            "dictionary materialization capability",
+            "supported.dictionary, unsupported.dictionary-materialization-unproven",
+            "test:DictionaryMaterializationInteractionsFailClosed",
+            Props<RecordedNode>(nameof(RecordedNode.DictionaryMaterialization))),
+        Compared(
             "member serialized identity",
             "R02.property-*, R03.serialized-name.*",
             "matrix:R02.property-removal, matrix:R03.serialized-name.json-property-name",

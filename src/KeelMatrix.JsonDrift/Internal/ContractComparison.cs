@@ -6,6 +6,7 @@ namespace KeelMatrix.JsonDrift.Internal;
 internal static class ContractComparison
 {
     private const string AdditiveProperty = "R01.property-add.optional";
+    private const string AdditivePropertyExtensionDataCollision = "R01.property-add.extension-data-key-collision";
     private const string RequiredAdded = "R04.requiredness.optional-to-required";
     private const string PropertyRemoved = "R02.property-removal";
     private const string PropertyRenamed = "R03.serialized-name.json-property-name";
@@ -331,6 +332,7 @@ internal static class ContractComparison
                 CompareNestedNodeField(earlier, later, "element", $"{path}[]", context);
                 break;
             case "dictionary":
+                CompareDictionaryMaterialization(earlier, later, path, context.Changes);
                 CompareTypeField(earlier, later, "keyType", path, context.Changes, DictionaryKey, unsupported: true);
                 CompareNestedNodeField(earlier, later, "key", $"{path}{{key}}", context);
                 CompareNestedNodeField(earlier, later, "value", $"{path}{{value}}", context);
@@ -455,7 +457,7 @@ internal static class ContractComparison
 
         if (earlier.TryGetProperty("members", out JsonElement oldMembers) && later.TryGetProperty("members", out JsonElement newMembers))
         {
-            CompareMembers(oldMembers, newMembers, path, context, newExtension);
+            CompareMembers(oldMembers, newMembers, path, context, oldExtension, newExtension);
         }
         else if (earlier.TryGetProperty("memberNames", out JsonElement oldNames) && later.TryGetProperty("memberNames", out JsonElement newNames))
         {
@@ -487,6 +489,7 @@ internal static class ContractComparison
         JsonElement later,
         string path,
         ComparisonContext context,
+        bool earlierExtensionData,
         bool laterExtensionData)
     {
         ChangeSet changes = context.Changes;
@@ -509,7 +512,13 @@ internal static class ContractComparison
                     continue;
                 }
 
-                AddMemberAddition(newMember, memberPath, changes, context.LaterRequiresConstructorParameters);
+                AddMemberAddition(
+                    newMember,
+                    memberPath,
+                    changes,
+                    context.LaterRequiresConstructorParameters,
+                    earlierExtensionData,
+                    isRenameDestination: false);
                 continue;
             }
 
@@ -527,6 +536,19 @@ internal static class ContractComparison
 
                 if (renames.TryGetValue(name, out string? newName))
                 {
+                    JsonElement renamedMember = newByName[newName];
+                    bool destinationCanBeAbsent = AddMemberAddition(
+                        renamedMember,
+                        $"{path}.{newName}",
+                        changes,
+                        context.LaterRequiresConstructorParameters,
+                        earlierExtensionData,
+                        isRenameDestination: true);
+                    if (!destinationCanBeAbsent)
+                    {
+                        continue;
+                    }
+
                     changes.Add(
                         memberPath,
                         laterExtensionData ? JsonDriftClassification.Compatible : JsonDriftClassification.Incompatible,
@@ -571,43 +593,90 @@ internal static class ContractComparison
         }
     }
 
-    private static void AddMemberAddition(
+    private static bool AddMemberAddition(
         JsonElement member,
         string path,
         ChangeSet changes,
-        bool laterRequiresConstructorParameters)
+        bool laterRequiresConstructorParameters,
+        bool earlierExtensionData,
+        bool isRenameDestination)
     {
         bool constructorBound = TryGetConstructorBinding(member, out JsonElement binding);
+        bool constructorPresenceRequired = false;
         if (constructorBound)
         {
             bool hasDefault = binding.GetProperty("hasDefaultValue").GetBoolean();
+            constructorPresenceRequired = !hasDefault && laterRequiresConstructorParameters;
 
-            changes.Add(
-                path,
-                !hasDefault && laterRequiresConstructorParameters
-                    ? JsonDriftClassification.Incompatible
-                    : JsonDriftClassification.Compatible,
-                !hasDefault && laterRequiresConstructorParameters
-                    ? ConstructorParameterAddedEnforced
-                    : hasDefault ? ConstructorParameterDefaulted : ConstructorParameterAdded,
-                !hasDefault && laterRequiresConstructorParameters
-                    ? "the later contract requires every bound constructor parameter to be present"
-                    : hasDefault
-                        ? "the later contract adds a bound constructor parameter with a default value; earlier documents remain readable"
-                        : "the later contract adds a bound constructor parameter; missing values use the constructor default");
+            if (!isRenameDestination || constructorPresenceRequired)
+            {
+                changes.Add(
+                    path,
+                    constructorPresenceRequired
+                        ? JsonDriftClassification.Incompatible
+                        : JsonDriftClassification.Compatible,
+                    constructorPresenceRequired
+                        ? ConstructorParameterAddedEnforced
+                        : hasDefault ? ConstructorParameterDefaulted : ConstructorParameterAdded,
+                    constructorPresenceRequired
+                        ? "the later contract requires every bound constructor parameter to be present"
+                        : hasDefault
+                            ? "the later contract adds a bound constructor parameter with a default value; earlier documents remain readable"
+                            : "the later contract adds a bound constructor parameter; missing values use the constructor default");
+            }
         }
 
         bool required = member.GetProperty("required").GetBoolean();
         if (required || !constructorBound)
         {
+            if (!isRenameDestination || required)
+            {
+                changes.Add(
+                    path,
+                    required ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
+                    required ? RequiredAdded : AdditiveProperty,
+                    required
+                        ? "the later contract adds a required member that earlier documents do not contain"
+                        : "the later contract adds an optional member; earlier members remain readable");
+            }
+        }
+
+        bool extensionDataCollision =
+            !required &&
+            !constructorPresenceRequired &&
+            earlierExtensionData &&
+            IsIncluded(member) &&
+            !member.GetProperty("extensionData").GetBoolean();
+        if (extensionDataCollision)
+        {
             changes.Add(
                 path,
-                required ? JsonDriftClassification.Incompatible : JsonDriftClassification.Compatible,
-                required ? RequiredAdded : AdditiveProperty,
-                required
-                    ? "the later contract adds a required member that earlier documents do not contain"
-                    : "the later contract adds an optional member; earlier members remain readable");
+                JsonDriftClassification.Unsupported,
+                AdditivePropertyExtensionDataCollision,
+                "the earlier extension-data key and value space can contain this name, but the later reader binds it to the added member; token preservation is unproven");
         }
+
+        return !required && !constructorPresenceRequired && !extensionDataCollision;
+    }
+
+    private static void CompareDictionaryMaterialization(
+        JsonElement earlier,
+        JsonElement later,
+        string path,
+        ChangeSet changes)
+    {
+        string earlierMaterialization = earlier.GetProperty("dictionaryMaterialization").GetString()!;
+        string laterMaterialization = later.GetProperty("dictionaryMaterialization").GetString()!;
+        if (string.Equals(laterMaterialization, "constructible", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        changes.Add(
+            path,
+            JsonDriftClassification.Unsupported,
+            RuleIds.UnsupportedDictionaryMaterializationUnproven,
+            $"the earlier dictionary materialization is '{earlierMaterialization}', but the later '{laterMaterialization}' materializer has no measured construction rule");
     }
 
     private static Dictionary<string, string> FindExplicitRenames(

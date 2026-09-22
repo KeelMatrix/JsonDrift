@@ -248,6 +248,7 @@ internal static class MetadataTraversal
 
         private RecordedNodeKind RecordDictionaryShape(RecordedNode node, JsonTypeInfo info, Type type, int depth)
         {
+            node.DictionaryMaterialization = DictionaryMaterialization(type);
             Type? keyType = info.KeyType;
             Type? valueType = info.ElementType;
 
@@ -276,6 +277,11 @@ internal static class MetadataTraversal
 
             return RecordedNodeKind.Dictionary;
         }
+
+        private static RecordedDictionaryMaterialization DictionaryMaterialization(Type type) =>
+            type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>)
+                ? RecordedDictionaryMaterialization.Constructible
+                : RecordedDictionaryMaterialization.Unclassified;
 
         private static RecordedNodeKind RecordScalarShape(RecordedNode node, JsonTypeInfo info, Type type, string path)
         {

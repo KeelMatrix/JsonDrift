@@ -15,7 +15,7 @@ namespace KeelMatrix.JsonDrift.Internal;
 internal static class ContractCanonicalizer
 {
     /// <summary>The canonical baseline document format version.</summary>
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 3;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
@@ -140,6 +140,8 @@ internal static class ContractCanonicalizer
                 break;
 
             case RecordedNodeKind.Dictionary:
+                described["dictionaryMaterialization"] = DictionaryMaterializationName(
+                    node.DictionaryMaterialization ?? RecordedDictionaryMaterialization.Unclassified);
                 if (EdgeNode(node, MetadataSourceKind.DictionaryKeyTypes) is RecordedNode key)
                 {
                     described["keyType"] = key.TypeName;
@@ -356,5 +358,11 @@ internal static class ContractCanonicalizer
     {
         RecordedCollectionSemantics.OrderedWithMultiplicity => "ordered-with-multiplicity",
         RecordedCollectionSemantics.Unclassified => "unclassified",
+    };
+
+    private static string DictionaryMaterializationName(RecordedDictionaryMaterialization materialization) => materialization switch
+    {
+        RecordedDictionaryMaterialization.Constructible => "constructible",
+        RecordedDictionaryMaterialization.Unclassified => "unclassified",
     };
 }

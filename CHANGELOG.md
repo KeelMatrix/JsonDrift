@@ -16,11 +16,13 @@ All notable changes to this project are documented in this file. The format is b
 - Complete reports for effective ignored/included member transitions and constructor-binding changes, including
   defaulted, enforced, and renamed bindings.
 - The reflection/options path requires an explicit `DefaultJsonTypeInfoResolver` with the pinned
-  `System.Text.Json` behavior. Measured allowlisted `[JsonPropertyName]` renames are incompatible; arbitrary
-  unallowlisted serialization attributes or values, including unmeasured renames, are unsupported.
+  `System.Text.Json` behavior. Measured allowlisted `[JsonPropertyName]` renames are normally incompatible; an
+  optional destination can use the measured extension-data preservation exception only after its independent
+  presence constraints and the earlier extension-data key space are accounted for. Arbitrary unallowlisted
+  serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
-- Canonical baseline format 2 records complete nested object, collection-element, and dictionary key/value
-  contract graphs with bounded references for recursive types.
+- Canonical baseline format 3 records complete nested object, collection-element, and dictionary key/value
+  contract graphs, including dictionary construction capability, with bounded references for recursive types.
 - Root scalar token changes, nested contract changes, and evidenced numeric range, signedness, fractional, and
   precision-loss transitions are classified fail-closed by the shipping comparison; unclassified scalar and
   numeric transitions are unsupported.
@@ -29,6 +31,8 @@ All notable changes to this project are documented in this file. The format is b
   `AssertCompatible`.
 - A recorded-fact comparison rule table binds every traversed fact to a measured preservation witness or an
   explicit non-contract reason; an automated gate rejects uncovered facts and every rule gap fails closed.
+- A pairwise contract-fact interaction table classifies every family pair with a measured witness or an explicit
+  non-interaction reason; its gate rejects a newly introduced family until every pair is classified.
 - Nullable value slots are retained at roots and nested edges, writable-member materialization is checked,
   collection compatibility is restricted to order-and-multiplicity-preserving materializers, enum integer-token
   acceptance is compared, independent member constraints are all reported, and malformed reference graphs are
@@ -42,6 +46,12 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- Required property renames are no longer accepted merely because later extension data captures the old key;
+  destination requiredness and constructor-presence constraints are evaluated first.
+- Optional member additions and rename destinations now fail closed when an earlier extension-data key/value
+  space can collide with the new name and supply an incompatible token.
+- Dictionary support and comparison now require a measured construction path, so concrete read-only or otherwise
+  unproven dictionary materializers report `Unsupported` at roots and nested writable members.
 - Package inspection now allowlists only the generated `nuget.psmdcp` or 32-character hexadecimal core-properties
   entry and rejects unexpected `.psmdcp` names and other artifact mutations.
 - Release validation now checks the tag, package version, finalized changelog, exact package and symbol archives,

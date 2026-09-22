@@ -147,14 +147,20 @@ The measured classification rules and their evidence remain in
 - Unsupported or unclassified metadata is deny-by-default and is never represented as compatible.
 - Extraction accepts `JsonTypeInfo`, reflection-backed `JsonSerializerOptions`, and source-generated
   type information. Application converters are not executed to reverse-engineer behavior.
-- Baselines use canonical JSON format version `2`: UTF-8 without BOM, LF line endings, stable ordering,
+- Baselines use canonical JSON format version `3`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
-- Canonical nodes retain complete nested object, collection-element, and dictionary key/value contracts;
-  repeated types use validated bounded references. Nullable value slots are preserved at roots and nested
+- Canonical nodes retain complete nested object, collection-element, and dictionary key/value contracts plus
+  dictionary construction capability; repeated types use validated bounded references. Nullable value slots
+  are preserved at roots and nested
   edges; collection compatibility is limited to materializers proven to preserve order and multiplicity;
   member materialization and enum integer-token acceptance are compared explicitly. Root scalar token changes
   are incompatible, proven numeric range or precision loss is incompatible, and unclassified transitions are
   unsupported.
+- An optional `[JsonPropertyName]` rename is compatible through later `[JsonExtensionData]` only when the
+  destination has no independent presence constraint and the earlier contract has no extension-data key space
+  that can shadow the new name. Required rename destinations remain incompatible; additions or renames that
+  collide with an earlier extension-data key space are unsupported. Concrete dictionary types without a
+  measured construction path are unsupported even when their key and value contracts match.
 - `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an
   incompatible or unsupported result.

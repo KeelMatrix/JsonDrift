@@ -11,11 +11,12 @@ namespace KeelMatrix.JsonDrift;
 /// This model describes structural JSON wire compatibility only. It is not a source/API compatibility model,
 /// and it cannot prove business or semantic compatibility. A contract can be explicitly unsupported when the
 /// serializer metadata contains a feature that JsonDrift has not measured; unsupported contracts must never be
-/// treated as compatible. Format version 2 records complete nested object, collection-element, and dictionary
-/// key/value metadata, with bounded references for repeated types, and records the JSON token kind of scalar
-/// nodes for fail-closed comparison. ReaderBackward comparison retains nullable value acceptance at every value
-/// slot, requires evidenced collection preservation, compares enum token domains and member materialization, and
-/// rejects malformed reference-only graphs before comparison.
+/// treated as compatible. Format version 3 records complete nested object, collection-element, and dictionary
+/// key/value metadata, including dictionary construction capability, with bounded references for repeated types,
+/// and records the JSON token kind of scalar nodes for fail-closed comparison. ReaderBackward comparison retains
+/// nullable value acceptance at every value slot, requires evidenced collection and dictionary materialization,
+/// compares enum token domains and member materialization, and rejects malformed reference-only graphs before
+/// comparison.
 /// </remarks>
 public sealed class JsonContract
 {
@@ -29,6 +30,7 @@ public sealed class JsonContract
     private static readonly string[] CollectionSemanticsProperty = { "collectionSemantics" };
     private static readonly string[] DictionaryTypeProperties = { "keyType", "valueType" };
     private static readonly string[] DictionaryContractProperties = { "key", "value" };
+    private static readonly string[] DictionaryMaterializationProperty = { "dictionaryMaterialization" };
     private static readonly string[] ScalarTokenKindProperty = { "tokenKind" };
     private static readonly string[] EnumWireProperty = { "enumWire" };
     private static readonly string[] ReferenceProperty = { "reference" };
@@ -58,7 +60,7 @@ public sealed class JsonContract
         this.usesSourceGeneratedMetadata = usesSourceGeneratedMetadata;
     }
 
-    /// <summary>Gets the canonical baseline format version of this contract; the current version is 2.</summary>
+    /// <summary>Gets the canonical baseline format version of this contract; the current version is 3.</summary>
     public int FormatVersion { get; }
 
     /// <summary>Gets the stable type name of the selected root contract.</summary>
@@ -320,9 +322,18 @@ public sealed class JsonContract
             case "dictionary":
                 ValidateObjectProperties(
                     node,
-                    supported ? commonRequired.Concat(DictionaryTypeProperties).Concat(DictionaryContractProperties).ToArray() : commonRequired,
-                    supported ? nodeOptional.Concat(DictionaryContractProperties).ToArray() : nodeOptional.Concat(DictionaryTypeProperties).Concat(DictionaryContractProperties).ToArray(),
+                    supported
+                        ? commonRequired.Concat(DictionaryMaterializationProperty).Concat(DictionaryTypeProperties).Concat(DictionaryContractProperties).ToArray()
+                        : commonRequired.Concat(DictionaryMaterializationProperty).ToArray(),
+                    supported
+                        ? nodeOptional.Concat(DictionaryContractProperties).ToArray()
+                        : nodeOptional.Concat(DictionaryTypeProperties).Concat(DictionaryContractProperties).ToArray(),
                     context);
+                string dictionaryMaterialization = RequireString(node, "dictionaryMaterialization", context, allowEmpty: false);
+                if (dictionaryMaterialization is not ("constructible" or "unclassified"))
+                {
+                    throw new InvalidDataException($"Baseline {context} dictionary has an unknown dictionaryMaterialization value.");
+                }
                 if (node.TryGetProperty("keyType", out _))
                 {
                     RequireString(node, "keyType", context, allowEmpty: false);

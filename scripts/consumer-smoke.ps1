@@ -63,6 +63,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Collections.ObjectModel;
 using KeelMatrix.JsonDrift;
 
 string baselinePath = Path.Combine(Path.GetTempPath(), "jsondrift-consumer-" + Guid.NewGuid().ToString("N") + ".json");
@@ -122,6 +123,9 @@ if (!independent.Changes.Any(change => change.RuleId == "R09.ignore.member-inclu
     throw new InvalidOperationException("the packaged comparison suppressed an independent member constraint");
 }
 
+RunExtensionDataInteractionRegressions();
+RunDictionaryMaterializationRegressions();
+
 RequireCompatible(Compare(SmokeContext.Default.Int64, SmokeContext.Default.Int32));
 RequireCompatible(Compare(SmokeContext.Default.Int32Array, SmokeContext.Default.ListInt32));
 RequireCompatible(Compare(SmokeContext.Default.OrderEnvelopeOptional, SmokeContext.Default.OrderEnvelopeV1));
@@ -160,7 +164,7 @@ finally
     File.Delete(malformedPath);
 }
 
-Console.WriteLine("consumer conservatism passed: R1-R6 public package regressions and positive controls");
+Console.WriteLine("consumer conservatism passed: extension-data and dictionary-materialization package regressions and positive controls");
 }
 finally
 {
@@ -178,6 +182,124 @@ static JsonDriftReport Compare(JsonTypeInfo later, JsonTypeInfo earlier)
     finally
     {
         File.Delete(path);
+    }
+}
+
+static void RunExtensionDataInteractionRegressions()
+{
+    const string RenameDocument = "{\"account_id\":\"A\"}";
+    string[] collisionTokens = { "\"not-a-number\"", "true", "{}", "[]", "null" };
+
+    foreach (bool sourceGenerated in new[] { false, true })
+    {
+        JsonTypeInfo requiredEarlier = TypeInfo(typeof(RequiredRenameV1), sourceGenerated);
+        JsonTypeInfo requiredLater = TypeInfo(typeof(RequiredRenameV2), sourceGenerated);
+        RequireReadFailure<JsonException>(RenameDocument, requiredLater);
+        JsonDriftReport requiredReport = Compare(requiredLater, requiredEarlier);
+        RequireRejected(requiredReport, JsonDriftClassification.Incompatible);
+        RequireRule(requiredReport, "R04.requiredness.optional-to-required");
+
+        JsonTypeInfo safeEarlier = TypeInfo(typeof(OptionalRenameV1), sourceGenerated);
+        JsonTypeInfo safeLater = TypeInfo(typeof(OptionalRenameV2WithExtensionData), sourceGenerated);
+        var rebound = (OptionalRenameV2WithExtensionData?)JsonSerializer.Deserialize(RenameDocument, safeLater)
+            ?? throw new InvalidOperationException("the packaged safe rename did not deserialize");
+        if (rebound.Extra["account_id"].GetString() != "A")
+        {
+            throw new InvalidOperationException("the packaged safe rename did not preserve the earlier key");
+        }
+        JsonDriftReport safeRename = Compare(safeLater, safeEarlier);
+        RequireCompatible(safeRename);
+        RequireRule(safeRename, "R03.serialized-name.mitigated-by-extension-data");
+
+        JsonTypeInfo extensionEarlier = TypeInfo(typeof(ExtensionDataOnly), sourceGenerated);
+        JsonTypeInfo extensionLater = TypeInfo(typeof(ExtensionDataWithCount), sourceGenerated);
+        foreach (string token in collisionTokens)
+        {
+            using JsonDocument value = JsonDocument.Parse(token);
+            var instance = new ExtensionDataOnly
+            {
+                Extra = new Dictionary<string, JsonElement>
+                {
+                    ["Count"] = value.RootElement.Clone(),
+                },
+            };
+            string earlierDocument = JsonSerializer.Serialize(instance, extensionEarlier);
+            RequireReadFailure<JsonException>(earlierDocument, extensionLater);
+        }
+        JsonDriftReport collision = Compare(extensionLater, extensionEarlier);
+        RequireRejected(collision, JsonDriftClassification.Unsupported);
+        RequireRule(collision, "R01.property-add.extension-data-key-collision");
+
+        JsonTypeInfo enumLater = TypeInfo(typeof(ExtensionDataWithState), sourceGenerated);
+        const string EnumDocument = "{\"State\":\"not-a-state\"}";
+        RequireReadFailure<JsonException>(EnumDocument, enumLater);
+        JsonDriftReport enumCollision = Compare(enumLater, extensionEarlier);
+        RequireRejected(enumCollision, JsonDriftClassification.Unsupported);
+        RequireRule(enumCollision, "R01.property-add.extension-data-key-collision");
+
+        RequireCompatible(Compare(
+            TypeInfo(typeof(OrdinaryAdditionV2), sourceGenerated),
+            TypeInfo(typeof(OrdinaryAdditionV1), sourceGenerated)));
+    }
+}
+
+static void RunDictionaryMaterializationRegressions()
+{
+    foreach (bool sourceGenerated in new[] { false, true })
+    {
+        JsonTypeInfo dictionary = TypeInfo(typeof(Dictionary<string, int>), sourceGenerated);
+        JsonTypeInfo readOnlyDictionary = TypeInfo(typeof(ReadOnlyDictionary<string, int>), sourceGenerated);
+        string rootDocument = JsonSerializer.Serialize(new Dictionary<string, int> { ["a"] = 1 }, dictionary);
+        RequireReadFailure<NotSupportedException>(rootDocument, readOnlyDictionary);
+        JsonDriftReport root = Compare(readOnlyDictionary, dictionary);
+        RequireRejected(root, JsonDriftClassification.Unsupported);
+        RequireRule(root, "unsupported.dictionary-materialization-unproven");
+
+        JsonTypeInfo writableHolder = TypeInfo(typeof(WritableDictionaryHolder), sourceGenerated);
+        JsonTypeInfo readOnlyHolder = TypeInfo(typeof(ReadOnlyDictionaryHolder), sourceGenerated);
+        string nestedDocument = JsonSerializer.Serialize(
+            new WritableDictionaryHolder { Values = { ["a"] = 1 } },
+            writableHolder);
+        RequireReadFailure<NotSupportedException>(nestedDocument, readOnlyHolder);
+        JsonDriftReport nested = Compare(readOnlyHolder, writableHolder);
+        RequireRejected(nested, JsonDriftClassification.Unsupported);
+        RequireRule(nested, "unsupported.dictionary-materialization-unproven");
+
+        RequireCompatible(Compare(dictionary, dictionary));
+        RequireCompatible(Compare(writableHolder, writableHolder));
+    }
+}
+
+static JsonTypeInfo TypeInfo(Type type, bool sourceGenerated)
+{
+    if (sourceGenerated)
+    {
+        return SmokeContext.Default.GetTypeInfo(type)
+            ?? throw new InvalidOperationException($"source-generated metadata is missing for {type}");
+    }
+
+    var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+    return options.GetTypeInfo(type);
+}
+
+static void RequireReadFailure<TException>(string document, JsonTypeInfo later)
+    where TException : Exception
+{
+    try
+    {
+        JsonSerializer.Deserialize(document, later);
+        throw new InvalidOperationException($"the later reader unexpectedly accepted {document}");
+    }
+    catch (TException)
+    {
+    }
+}
+
+static void RequireRule(JsonDriftReport report, string ruleId)
+{
+    if (!report.Changes.Any(change => change.RuleId == ruleId))
+    {
+        throw new InvalidOperationException($"the packaged comparison did not report {ruleId}");
     }
 }
 
@@ -263,6 +385,90 @@ public sealed class RecursiveSmoke
     public RecursiveSmoke? Next { get; set; }
 }
 
+public sealed class RequiredRenameV1
+{
+    [JsonRequired]
+    [JsonPropertyName("account_id")]
+    public string? AccountId { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public sealed class RequiredRenameV2
+{
+    [JsonRequired]
+    [JsonPropertyName("accountId")]
+    public string? AccountId { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public sealed class OptionalRenameV1
+{
+    [JsonPropertyName("account_id")]
+    public string? AccountId { get; set; }
+}
+
+public sealed class OptionalRenameV2WithExtensionData
+{
+    [JsonPropertyName("accountId")]
+    public string? AccountId { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public sealed class ExtensionDataOnly
+{
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public sealed class ExtensionDataWithCount
+{
+    public int Count { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public sealed class ExtensionDataWithState
+{
+    public CollisionState State { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = new();
+}
+
+public enum CollisionState
+{
+    Ready = 1,
+}
+
+public sealed class OrdinaryAdditionV1
+{
+    public int Id { get; set; }
+}
+
+public sealed class OrdinaryAdditionV2
+{
+    public int Id { get; set; }
+
+    public int Count { get; set; }
+}
+
+public sealed class WritableDictionaryHolder
+{
+    public Dictionary<string, int> Values { get; set; } = new();
+}
+
+public sealed class ReadOnlyDictionaryHolder
+{
+    public ReadOnlyDictionary<string, int> Values { get; set; } = new(new Dictionary<string, int>());
+}
+
 [JsonSerializable(typeof(OrderEnvelopeV1))]
 [JsonSerializable(typeof(OrderEnvelopeV2))]
 [JsonSerializable(typeof(OrderEnvelopeOptional))]
@@ -277,6 +483,19 @@ public sealed class RecursiveSmoke
 [JsonSerializable(typeof(List<int>))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(HashSet<int>))]
+[JsonSerializable(typeof(Dictionary<string, int>))]
+[JsonSerializable(typeof(ReadOnlyDictionary<string, int>))]
+[JsonSerializable(typeof(RequiredRenameV1))]
+[JsonSerializable(typeof(RequiredRenameV2))]
+[JsonSerializable(typeof(OptionalRenameV1))]
+[JsonSerializable(typeof(OptionalRenameV2WithExtensionData))]
+[JsonSerializable(typeof(ExtensionDataOnly))]
+[JsonSerializable(typeof(ExtensionDataWithCount))]
+[JsonSerializable(typeof(ExtensionDataWithState))]
+[JsonSerializable(typeof(OrdinaryAdditionV1))]
+[JsonSerializable(typeof(OrdinaryAdditionV2))]
+[JsonSerializable(typeof(WritableDictionaryHolder))]
+[JsonSerializable(typeof(ReadOnlyDictionaryHolder))]
 public partial class SmokeContext : JsonSerializerContext
 {
 }

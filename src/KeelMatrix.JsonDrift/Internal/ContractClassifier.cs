@@ -193,6 +193,15 @@ internal static class ContractClassifier
                         $"{node.Path} is a dictionary but recorded no value type"));
             }
 
+            if (node.DictionaryMaterialization != RecordedDictionaryMaterialization.Constructible)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedDictionaryMaterializationUnproven,
+                    Witness(
+                        MetadataSourceKind.DictionaryValueTypes,
+                        $"{node.Path} uses {node.TypeName}, whose dictionary materializer has no measured construction rule"));
+            }
+
             return ClassifyEdges(node, RuleIds.SupportedDictionary);
         }
 

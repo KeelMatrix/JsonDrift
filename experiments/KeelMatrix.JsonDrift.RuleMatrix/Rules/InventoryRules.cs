@@ -44,6 +44,7 @@ internal static class InventoryRules
         }
 
         yield return ComparisonFactRuleCheck(checks, lines);
+        yield return ComparisonFactInteractionCheck(checks, lines);
 
         foreach (CheckOutcome check in AllowlistChecks(lines))
         {
@@ -126,6 +127,79 @@ internal static class InventoryRules
             $"missingRows=[{string.Join(", ", missingRows)}]; unknownRows=[{string.Join(", ", unknownRows)}]; " +
             $"mismatches=[{string.Join(", ", mismatches)}]; " +
             $"missingMatrixWitnesses=[{string.Join(", ", missingMatrixWitnesses)}]",
+            passed);
+    }
+
+    private static CheckOutcome ComparisonFactInteractionCheck(
+        IReadOnlyList<CheckOutcome> checks,
+        string[] lines)
+    {
+        string[][] documented = DocumentationTables.ReadTable(lines, DocumentationTables.FactInteractionHeading)
+            .Where(static cells => cells.Length >= 4 &&
+                !string.Equals(Clean(cells[0]), "Family pair", StringComparison.Ordinal))
+            .ToArray();
+        ContractFactInteraction[] catalogue = ContractFactInteractions.Entries.ToArray();
+        IReadOnlyList<string> coverageErrors = ContractFactInteractions.ValidateCoverage();
+        string[] duplicateRows = documented
+            .GroupBy(static cells => Clean(cells[0]), StringComparer.Ordinal)
+            .Where(static group => group.Count() != 1)
+            .Select(static group => group.Key)
+            .ToArray();
+        string[] missingRows = catalogue
+            .Where(entry => !documented.Any(cells =>
+                string.Equals(Clean(cells[0]), entry.Id, StringComparison.Ordinal)))
+            .Select(static entry => entry.Id)
+            .ToArray();
+        string[] unknownRows = documented
+            .Where(cells => !catalogue.Any(entry =>
+                string.Equals(entry.Id, Clean(cells[0]), StringComparison.Ordinal)))
+            .Select(static cells => Clean(cells[0]))
+            .ToArray();
+        string[] missingMatrixWitnesses = catalogue
+            .Where(static entry => entry.Witness is not null &&
+                entry.Witness.StartsWith("matrix:", StringComparison.Ordinal))
+            .Select(static entry => entry.Witness!["matrix:".Length..])
+            .Where(id => !checks.Any(check => string.Equals(check.Id, id, StringComparison.Ordinal)))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
+        string[] mismatches = catalogue
+            .Select(entry =>
+            {
+                string[]? row = documented.FirstOrDefault(cells =>
+                    string.Equals(Clean(cells[0]), entry.Id, StringComparison.Ordinal));
+                if (row is null)
+                {
+                    return null;
+                }
+
+                string[] expected =
+                {
+                    entry.Id,
+                    entry.Rule is null ? "Cannot interact" : "Interacts",
+                    entry.Rule ?? entry.NonInteractionReason!,
+                    entry.Witness ?? "Not applicable",
+                };
+                string[] actual = row.Take(4).Select(Clean).ToArray();
+                return expected.SequenceEqual(actual, StringComparer.Ordinal) ? null : entry.Id;
+            })
+            .Where(static value => value is not null)
+            .Select(static value => value!)
+            .ToArray();
+        bool passed = coverageErrors.Count == 0 && duplicateRows.Length == 0 &&
+            missingRows.Length == 0 && unknownRows.Length == 0 && mismatches.Length == 0 &&
+            missingMatrixWitnesses.Length == 0;
+
+        return Check.Assert(
+            "D06.comparison-fact-interactions.coverage",
+            "Recorded-fact interaction coverage",
+            "every unordered pair of contract-fact families has a witnessed comparison rule or an explicit non-interaction reason, and the interaction table is documented exactly",
+            "pairs=catalogued=documented, unclassified=0",
+            passed ? "pairs=catalogued=documented, unclassified=0" : "fact-family interaction coverage mismatch",
+            $"families={ContractFactInteractions.Families.Count}; pairs={catalogue.Length}; " +
+            $"coverageErrors=[{string.Join(", ", coverageErrors)}]; duplicateRows=[{string.Join(", ", duplicateRows)}]; " +
+            $"missingRows=[{string.Join(", ", missingRows)}]; unknownRows=[{string.Join(", ", unknownRows)}]; " +
+            $"mismatches=[{string.Join(", ", mismatches)}]; missingMatrixWitnesses=[{string.Join(", ", missingMatrixWitnesses)}]",
             passed);
     }
 
