@@ -202,7 +202,7 @@ shared telemetry package owns event fields, pseudonymous identifiers, delivery, 
 precedence. See [PRIVACY.md](PRIVACY.md) for the JsonDrift-specific boundary and the shared telemetry policy.
 
 The runtime dependency graph is intentionally small: `System.Text.Json` `10.0.12` and
-`KeelMatrix.Telemetry` `[0.1.0]`. The analyzer and SourceLink packages are build-only dependencies and do not
+`KeelMatrix.Telemetry` `[0.1.1]`. The analyzer and SourceLink packages are build-only dependencies and do not
 flow to consumers.
 
 After an intentional contract change, replace the committed baseline explicitly with

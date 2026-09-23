@@ -471,7 +471,7 @@ function Assert-PackageArtifact {
                 "$($_.GetAttribute('id'))|$($_.GetAttribute('version'))"
             } | Sort-Object)
         $expectedRuntimeDependencies = @(
-            'KeelMatrix.Telemetry|[0.1.0]',
+            'KeelMatrix.Telemetry|[0.1.1]',
             'System.Text.Json|10.0.12'
         ) | Sort-Object
         if (-not [System.Linq.Enumerable]::SequenceEqual([string[]]$runtimeDependencies, [string[]]$expectedRuntimeDependencies)) {
