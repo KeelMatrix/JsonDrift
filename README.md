@@ -164,11 +164,13 @@ The measured classification rules and their evidence remain in
   collide with an earlier extension-data key space are unsupported. Adding polymorphic dispatch to an object
   with earlier writable extension data is also unsupported because the earlier key space can contain the new
   discriminator name with an unrecognized discriminator value. A discriminator name that collides with an
-  effective ordinary member name is unsupported because the same JSON property can be consumed as dispatch
-  metadata instead of member data. A concrete contract becoming an abstract or
-  interface polymorphic contract is incompatible because the later reader requires a discriminator that
-  earlier documents do not contain; adding dispatch while the declared base stays concrete retains the measured
-  compatible control when its discriminator name does not collide with an ordinary member. A plain abstract or
+  effective ordinary member on the declaring contract or anywhere in its reachable registered derived hierarchy
+  is unsupported because the same JSON property can be consumed as dispatch metadata instead of member data.
+  This includes inherited and renamed included members; ignored members are not on the wire. A concrete contract
+  becoming an abstract or interface polymorphic contract is incompatible because the later reader requires a
+  discriminator that earlier documents do not contain; adding dispatch while the declared base stays concrete
+  retains the measured compatible control when its discriminator name does not collide with an ordinary member
+  anywhere in that hierarchy. A plain abstract or
   interface contract without registered polymorphic derived-type metadata is unsupported because the reader
   cannot materialize it. Concrete objects without a measured constructor path and concrete dictionary types without a measured
   construction path are unsupported even when their key and value contracts match.

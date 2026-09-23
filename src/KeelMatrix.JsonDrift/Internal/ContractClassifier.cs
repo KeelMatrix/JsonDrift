@@ -85,6 +85,16 @@ internal static class ContractClassifier
 
         private Classification ClassifyObject(RecordedNode node)
         {
+            if (node.DiscriminatorPropertyName is string discriminatorName &&
+                FindDiscriminatorMemberCollision(node, discriminatorName) is RecordedMember collision)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedPolymorphismDiscriminatorMemberCollision,
+                    Witness(
+                        MetadataSourceKind.PolymorphismDerivedTypes,
+                        $"{node.Path} uses discriminator property '{discriminatorName}', which collides with the effective ordinary serialized member at {collision.Path}"));
+            }
+
             if (Gate(node) is Classification gate)
             {
                 return gate;
@@ -111,19 +121,6 @@ internal static class ContractClassifier
                     Witness(
                         MetadataSourceKind.ConstructorParameters,
                         $"{node.Path} uses {node.TypeName}, whose concrete object reader has no measured public parameterless, single public parameterized, or public JsonConstructor construction path"));
-            }
-
-            if (node.DiscriminatorPropertyName is string discriminatorName &&
-                node.Members.Any(member =>
-                    member.Included &&
-                    !member.ExtensionData &&
-                    string.Equals(member.Name, discriminatorName, StringComparison.Ordinal)))
-            {
-                return Unclassifiable(
-                    RuleIds.UnsupportedPolymorphismDiscriminatorMemberCollision,
-                    Witness(
-                        MetadataSourceKind.PolymorphismDerivedTypes,
-                        $"{node.Path} uses discriminator property '{discriminatorName}', which collides with an effective ordinary serialized member name"));
             }
 
             foreach (RecordedMember member in node.Members)
@@ -172,6 +169,46 @@ internal static class ContractClassifier
             }
 
             return Classification.Classifiable(RuleIds.SupportedObject);
+        }
+
+        private static RecordedMember? FindDiscriminatorMemberCollision(
+            RecordedNode root,
+            string discriminatorName)
+        {
+            var pending = new Stack<RecordedNode>();
+            var visited = new HashSet<RecordedNode>(ReferenceEqualityComparer.Instance);
+            pending.Push(root);
+
+            while (pending.Count > 0)
+            {
+                RecordedNode current = pending.Pop();
+                if (!visited.Add(current))
+                {
+                    continue;
+                }
+
+                if (current.Kind == RecordedNodeKind.Reference && current.Reference is RecordedNode target)
+                {
+                    pending.Push(target);
+                    continue;
+                }
+
+                RecordedMember? collision = current.Members.FirstOrDefault(member =>
+                    member.Included &&
+                    !member.ExtensionData &&
+                    string.Equals(member.Name, discriminatorName, StringComparison.Ordinal));
+                if (collision is not null)
+                {
+                    return collision;
+                }
+
+                foreach (RecordedDerivedType derived in current.DerivedTypes)
+                {
+                    pending.Push(derived.Node);
+                }
+            }
+
+            return null;
         }
 
         private Classification ClassifyEnumerable(RecordedNode node)

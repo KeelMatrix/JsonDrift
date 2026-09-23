@@ -154,6 +154,42 @@ public sealed class ComparisonConservatismTests
             AssertCompatible(positive);
             Assert.Contains(positive.Changes, change =>
                 change.RuleId == "R10e.polymorphism.dispatch-added-concrete");
+
+            AssertDiscriminatorCollisionRejected(
+                new PlainAnimal { Name = "Fido" },
+                typeof(PlainAnimal),
+                typeof(DerivedMemberCollisionBase),
+                "{\"Name\":\"Fido\"}",
+                sourceGenerated);
+            AssertDiscriminatorCollisionRejected(
+                new PlainKindAnimal { Name = "Fido", kind = "ordinary" },
+                typeof(PlainKindAnimal),
+                typeof(MultiLevelCollisionBase),
+                "{\"Name\":\"Fido\",\"kind\":\"ordinary\"}",
+                sourceGenerated);
+            AssertDiscriminatorCollisionRejected(
+                new PlainAnimal { Name = "Fido" },
+                typeof(PlainAnimal),
+                typeof(RenamedDerivedMemberCollisionBase),
+                "{\"Name\":\"Fido\"}",
+                sourceGenerated);
+            AssertDiscriminatorCollisionRejected(
+                new PlainAnimal { Name = "Fido" },
+                typeof(PlainAnimal),
+                typeof(InheritedDerivedMemberCollisionBase),
+                "{\"Name\":\"Fido\"}",
+                sourceGenerated);
+            AssertDiscriminatorCollisionRejected(
+                new PlainAnimal { Name = "Fido" },
+                typeof(PlainAnimal),
+                typeof(MultipleDerivedMemberCollisionBase),
+                "{\"Name\":\"Fido\"}",
+                sourceGenerated);
+
+            JsonTypeInfo ignoredCollision = TypeInfo(typeof(IgnoredDerivedMemberCollisionBase), sourceGenerated);
+            object? ignoredRead = JsonSerializer.Deserialize("{\"Name\":\"Fido\"}", ignoredCollision);
+            Assert.IsType<IgnoredDerivedMemberCollisionBase>(ignoredRead);
+            AssertCompatible(CompareThroughBaselineFile(ignoredCollision, TypeInfo(typeof(PlainAnimal), sourceGenerated)));
         }
     }
 
@@ -720,6 +756,32 @@ public sealed class ComparisonConservatismTests
         }
     }
 
+    private static void AssertDiscriminatorCollisionRejected(
+        object earlierValue,
+        Type earlierType,
+        Type laterType,
+        string expectedDocument,
+        bool sourceGenerated)
+    {
+        JsonTypeInfo earlier = TypeInfo(earlierType, sourceGenerated);
+        JsonTypeInfo later = sourceGenerated
+            ? ((IJsonTypeInfoResolver)ComparisonSourceContext.Default).GetTypeInfo(
+                laterType,
+                ComparisonSourceContext.Default.Options) ?? throw new InvalidOperationException($"Missing generated metadata for {laterType}.")
+            : TypeInfo(laterType, sourceGenerated: false);
+        string document = JsonSerializer.Serialize(earlierValue, earlier);
+
+        Assert.Equal(expectedDocument, document);
+        Exception? readFailure = Record.Exception(() => JsonSerializer.Deserialize(document, later));
+        Assert.NotNull(readFailure);
+        Assert.True(readFailure is JsonException or InvalidOperationException or NotSupportedException);
+
+        JsonDriftReport report = CompareThroughBaselineFile(later, earlier);
+        AssertRejected(report, JsonDriftClassification.Unsupported);
+        Assert.Contains(report.Changes, change =>
+            change.RuleId == "unsupported.polymorphism-discriminator-member-collision");
+    }
+
     private static void AssertRejected(
         JsonDriftReport report,
         JsonDriftClassification? expected = null)
@@ -1085,6 +1147,108 @@ public sealed class ComparisonConservatismTests
     {
     }
 
+    internal sealed class PlainAnimal
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class PlainKindAnimal
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public string kind { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(DerivedMemberCollisionDog), "dog")]
+    internal class DerivedMemberCollisionBase
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class DerivedMemberCollisionDog : DerivedMemberCollisionBase
+    {
+        public string kind { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(MultiLevelCollisionBranch), "branch")]
+    internal class MultiLevelCollisionBase
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "branchKind")]
+    [JsonDerivedType(typeof(MultiLevelCollisionLeaf), "leaf")]
+    internal class MultiLevelCollisionBranch : MultiLevelCollisionBase
+    {
+    }
+
+    internal sealed class MultiLevelCollisionLeaf : MultiLevelCollisionBranch
+    {
+        public string kind { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(RenamedDerivedMemberCollisionDog), "dog")]
+    internal class RenamedDerivedMemberCollisionBase
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class RenamedDerivedMemberCollisionDog : RenamedDerivedMemberCollisionBase
+    {
+        [JsonPropertyName("kind")]
+        public string LegacyKind { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(InheritedDerivedMemberCollisionDog), "dog")]
+    internal class InheritedDerivedMemberCollisionBase
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal class InheritedDerivedMemberCollisionMiddle : InheritedDerivedMemberCollisionBase
+    {
+        public string kind { get; set; } = string.Empty;
+    }
+
+    internal sealed class InheritedDerivedMemberCollisionDog : InheritedDerivedMemberCollisionMiddle
+    {
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(MultipleDerivedSafeDog), "dog")]
+    [JsonDerivedType(typeof(MultipleDerivedCollisionCat), "cat")]
+    internal class MultipleDerivedMemberCollisionBase
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class MultipleDerivedSafeDog : MultipleDerivedMemberCollisionBase
+    {
+        public int BarkVolume { get; set; }
+    }
+
+    internal sealed class MultipleDerivedCollisionCat : MultipleDerivedMemberCollisionBase
+    {
+        public string kind { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(IgnoredDerivedMemberCollisionDog), "dog")]
+    internal class IgnoredDerivedMemberCollisionBase
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal sealed class IgnoredDerivedMemberCollisionDog : IgnoredDerivedMemberCollisionBase
+    {
+        [JsonIgnore]
+        public string kind { get; set; } = string.Empty;
+    }
+
     internal enum CollisionState
     {
         Ready = 1,
@@ -1162,6 +1326,23 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryKindMember))]
 [JsonSerializable(typeof(ComparisonConservatismTests.CollidingPolymorphicKind))]
 [JsonSerializable(typeof(ComparisonConservatismTests.CollidingPolymorphicKindDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PlainAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PlainKindAnimal))]
+[JsonSerializable(typeof(ComparisonConservatismTests.DerivedMemberCollisionBase))]
+[JsonSerializable(typeof(ComparisonConservatismTests.DerivedMemberCollisionDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.MultiLevelCollisionBase))]
+[JsonSerializable(typeof(ComparisonConservatismTests.MultiLevelCollisionBranch))]
+[JsonSerializable(typeof(ComparisonConservatismTests.MultiLevelCollisionLeaf))]
+[JsonSerializable(typeof(ComparisonConservatismTests.RenamedDerivedMemberCollisionBase))]
+[JsonSerializable(typeof(ComparisonConservatismTests.RenamedDerivedMemberCollisionDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.InheritedDerivedMemberCollisionBase))]
+[JsonSerializable(typeof(ComparisonConservatismTests.InheritedDerivedMemberCollisionMiddle))]
+[JsonSerializable(typeof(ComparisonConservatismTests.InheritedDerivedMemberCollisionDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.MultipleDerivedMemberCollisionBase))]
+[JsonSerializable(typeof(ComparisonConservatismTests.MultipleDerivedSafeDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.MultipleDerivedCollisionCat))]
+[JsonSerializable(typeof(ComparisonConservatismTests.IgnoredDerivedMemberCollisionBase))]
+[JsonSerializable(typeof(ComparisonConservatismTests.IgnoredDerivedMemberCollisionDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV1))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV2))]
 [JsonSerializable(typeof(ComparisonConservatismTests.WritableDictionaryHolder))]

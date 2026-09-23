@@ -61,8 +61,9 @@ All notable changes to this project are documented in this file. The format is b
 - Concrete object support now requires a measured public parameterless, single fully-bound public parameterized,
   or fully-bound public `[JsonConstructor]` path; private-constructor-only and ambiguous construction paths report
   `Unsupported` at roots and nested writable members.
-- Polymorphic discriminator property names that collide with effective ordinary member names now report
-  `Unsupported`, preventing ordinary member data from being reinterpreted as dispatch metadata.
+- Polymorphic discriminator property names that collide with included ordinary members on the declaring contract
+  or anywhere in its reachable registered derived hierarchy report `Unsupported`, preventing inherited or renamed
+  member data from being reinterpreted as dispatch metadata while excluding ignored members from the collision set.
 - Package inspection now allowlists only the generated `nuget.psmdcp` or 32-character hexadecimal core-properties
   entry and rejects unexpected `.psmdcp` names and other artifact mutations.
 - Release validation now checks the tag, package version, finalized changelog, exact package and symbol archives,

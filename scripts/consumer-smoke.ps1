@@ -167,7 +167,7 @@ finally
     File.Delete(malformedPath);
 }
 
-Console.WriteLine("consumer conservatism passed: extension-data, concrete-object construction, discriminator-member interaction, polymorphism, and dictionary-materialization package regressions and positive controls");
+Console.WriteLine("consumer conservatism passed: extension-data, concrete-object construction, hierarchy-wide discriminator-member interaction, polymorphism, and dictionary-materialization package regressions and positive controls");
 }
 finally
 {
@@ -397,12 +397,77 @@ static void RunDiscriminatorMemberInteractionRegression()
         RequireRejected(report, JsonDriftClassification.Unsupported);
         RequireRule(report, "unsupported.polymorphism-discriminator-member-collision");
 
+        RequireDiscriminatorCollision(
+            "derived-member",
+            new PlainAnimal { Name = "Fido" },
+            typeof(PlainAnimal),
+            typeof(DerivedMemberCollisionBase),
+            "{\"Name\":\"Fido\"}",
+            sourceGenerated);
+        RequireDiscriminatorCollision(
+            "derived-of-derived",
+            new PlainKindAnimal { Name = "Fido", kind = "ordinary" },
+            typeof(PlainKindAnimal),
+            typeof(MultiLevelCollisionBase),
+            "{\"Name\":\"Fido\",\"kind\":\"ordinary\"}",
+            sourceGenerated);
+        RequireDiscriminatorCollision(
+            "renamed-derived-member",
+            new PlainAnimal { Name = "Fido" },
+            typeof(PlainAnimal),
+            typeof(RenamedDerivedMemberCollisionBase),
+            "{\"Name\":\"Fido\"}",
+            sourceGenerated);
+
         JsonTypeInfo nonColliding = TypeInfo(typeof(ConcretePolymorphicAnimal), sourceGenerated);
         JsonTypeInfo nonPolymorphic = TypeInfo(typeof(ConcreteAnimal), sourceGenerated);
         JsonDriftReport positive = Compare(nonColliding, nonPolymorphic);
         RequireCompatible(positive);
         RequireRule(positive, "R10e.polymorphism.dispatch-added-concrete");
     }
+}
+
+static void RequireDiscriminatorCollision(
+    string caseName,
+    object earlierValue,
+    Type earlierType,
+    Type laterType,
+    string expectedDocument,
+    bool sourceGenerated)
+{
+    JsonTypeInfo earlier = TypeInfo(earlierType, sourceGenerated);
+    JsonTypeInfo later = sourceGenerated
+        ? ((IJsonTypeInfoResolver)SmokeContext.Default).GetTypeInfo(
+            laterType,
+            SmokeContext.Default.Options) ?? throw new InvalidOperationException($"source-generated metadata is missing for {laterType}")
+        : TypeInfo(laterType, sourceGenerated: false);
+    string document = JsonSerializer.Serialize(earlierValue, earlier);
+    if (document != expectedDocument)
+    {
+        throw new InvalidOperationException($"the packaged {caseName} witness changed: {document}");
+    }
+
+    bool rejected = false;
+    try
+    {
+        JsonSerializer.Deserialize(document, later);
+    }
+    catch (Exception exception) when (exception is JsonException or InvalidOperationException or NotSupportedException)
+    {
+        rejected = true;
+    }
+
+    if (!rejected)
+    {
+        throw new InvalidOperationException($"the packaged {caseName} reader unexpectedly accepted {document}");
+    }
+
+    JsonDriftReport report = Compare(later, earlier);
+    RequireRejected(report, JsonDriftClassification.Unsupported);
+    RequireRule(report, "unsupported.polymorphism-discriminator-member-collision");
+
+    string metadataMode = sourceGenerated ? "source-generated" : "reflection";
+    Console.WriteLine($"discriminator/member collision passed: case={caseName}; mode={metadataMode}; json={document}; baselineRoundTrip=True; verdict={report.Outcome}; assertion=threw");
 }
 
 static void RequireObjectMaterialization(object value, JsonTypeInfo contract)
@@ -825,6 +890,61 @@ public sealed class CollidingPolymorphicKindDog : CollidingPolymorphicKind
 {
 }
 
+public sealed class PlainAnimal
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class PlainKindAnimal
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string kind { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(DerivedMemberCollisionDog), "dog")]
+public class DerivedMemberCollisionBase
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class DerivedMemberCollisionDog : DerivedMemberCollisionBase
+{
+    public string kind { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(MultiLevelCollisionBranch), "branch")]
+public class MultiLevelCollisionBase
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "branchKind")]
+[JsonDerivedType(typeof(MultiLevelCollisionLeaf), "leaf")]
+public class MultiLevelCollisionBranch : MultiLevelCollisionBase
+{
+}
+
+public sealed class MultiLevelCollisionLeaf : MultiLevelCollisionBranch
+{
+    public string kind { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(RenamedDerivedMemberCollisionDog), "dog")]
+public class RenamedDerivedMemberCollisionBase
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class RenamedDerivedMemberCollisionDog : RenamedDerivedMemberCollisionBase
+{
+    [JsonPropertyName("kind")]
+    public string LegacyKind { get; set; } = string.Empty;
+}
+
 public sealed class WritableDictionaryHolder
 {
     public Dictionary<string, int> Values { get; set; } = new();
@@ -880,6 +1000,15 @@ public sealed class ReadOnlyDictionaryHolder
 [JsonSerializable(typeof(OrdinaryKindMember))]
 [JsonSerializable(typeof(CollidingPolymorphicKind))]
 [JsonSerializable(typeof(CollidingPolymorphicKindDog))]
+[JsonSerializable(typeof(PlainAnimal))]
+[JsonSerializable(typeof(PlainKindAnimal))]
+[JsonSerializable(typeof(DerivedMemberCollisionBase))]
+[JsonSerializable(typeof(DerivedMemberCollisionDog))]
+[JsonSerializable(typeof(MultiLevelCollisionBase))]
+[JsonSerializable(typeof(MultiLevelCollisionBranch))]
+[JsonSerializable(typeof(MultiLevelCollisionLeaf))]
+[JsonSerializable(typeof(RenamedDerivedMemberCollisionBase))]
+[JsonSerializable(typeof(RenamedDerivedMemberCollisionDog))]
 [JsonSerializable(typeof(WritableDictionaryHolder))]
 [JsonSerializable(typeof(ReadOnlyDictionaryHolder))]
 public partial class SmokeContext : JsonSerializerContext

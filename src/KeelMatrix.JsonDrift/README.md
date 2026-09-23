@@ -152,15 +152,17 @@ arbitrary key space can already contain the later discriminator property name wi
 reader does not recognize; `Compare` reports `R10c.polymorphism.extension-data-discriminator-collision`
 instead of accepting that transition.
 
-A discriminator property name that collides with an effective ordinary serialized member is also unsupported.
-Both values occupy the same JSON property name, so the later reader can consume ordinary member data as dispatch
-metadata; `Compare` reports `unsupported.polymorphism-discriminator-member-collision`.
+A discriminator property name that collides with an effective ordinary serialized member on the declaring
+contract or anywhere in its reachable registered derived hierarchy is also unsupported. This includes inherited
+and renamed included members; ignored members are not on the wire. Both values occupy the same JSON property
+name, so the later reader can consume ordinary member data as dispatch metadata; `Compare` reports
+`unsupported.polymorphism-discriminator-member-collision`.
 
 A concrete non-polymorphic contract becoming an abstract or interface polymorphic contract is incompatible:
 earlier documents contain no type discriminator, and the later reader cannot materialize the declared base.
 `Compare` reports `R10d.polymorphism.discriminator-required`. Adding dispatch while the base stays concrete
 retains the measured compatible control under `R10e.polymorphism.dispatch-added-concrete` only when the
-discriminator name does not collide with an ordinary member.
+discriminator name does not collide with an ordinary member anywhere in that hierarchy.
 
 A plain abstract or interface contract without registered polymorphic derived-type metadata is unsupported.
 The framework reader cannot materialize that declared type, so `Compare` reports
