@@ -104,6 +104,28 @@ internal static class ContractClassifier
                     Witness(MetadataSourceKind.ConstructorParameters, $"{node.Path} recorded no constructor metadata"));
             }
 
+            if (node.ObjectMaterialization is null or RecordedObjectMaterialization.Unclassified)
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedObjectMaterializationUnproven,
+                    Witness(
+                        MetadataSourceKind.ConstructorParameters,
+                        $"{node.Path} uses {node.TypeName}, whose concrete object reader has no measured public parameterless, single public parameterized, or public JsonConstructor construction path"));
+            }
+
+            if (node.DiscriminatorPropertyName is string discriminatorName &&
+                node.Members.Any(member =>
+                    member.Included &&
+                    !member.ExtensionData &&
+                    string.Equals(member.Name, discriminatorName, StringComparison.Ordinal)))
+            {
+                return Unclassifiable(
+                    RuleIds.UnsupportedPolymorphismDiscriminatorMemberCollision,
+                    Witness(
+                        MetadataSourceKind.PolymorphismDerivedTypes,
+                        $"{node.Path} uses discriminator property '{discriminatorName}', which collides with an effective ordinary serialized member name"));
+            }
+
             foreach (RecordedMember member in node.Members)
             {
                 if (!member.Included)
@@ -139,7 +161,8 @@ internal static class ContractClassifier
                 }
             }
 
-            if (node.ReaderMaterializationRequiresDiscriminator && node.DerivedTypes.Count == 0)
+            if (node.ObjectMaterialization == RecordedObjectMaterialization.RequiresDiscriminator &&
+                node.DerivedTypes.Count == 0)
             {
                 return Unclassifiable(
                     RuleIds.UnsupportedObjectMaterializationUnproven,

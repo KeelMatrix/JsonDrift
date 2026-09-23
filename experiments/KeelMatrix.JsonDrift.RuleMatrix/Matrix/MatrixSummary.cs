@@ -17,7 +17,7 @@ internal static class MatrixSummary
     public const int ExpectedFullCompatibleCount = 7;
 
     /// <summary>Executed checks that report unsupported converter metadata.</summary>
-    public const int ExpectedUnsupportedCount = 73;
+    public const int ExpectedUnsupportedCount = 71;
 
     public static IEnumerable<CheckOutcome> Run(IReadOnlyList<CheckOutcome> checks)
     {

@@ -37,6 +37,7 @@ internal static class RuleIds
     public const string UnsupportedCollectionSemanticsUnproven = "unsupported.collection-semantics-unproven";
     public const string UnsupportedDictionaryMaterializationUnproven = "unsupported.dictionary-materialization-unproven";
     public const string UnsupportedObjectMaterializationUnproven = "unsupported.object-materialization-unproven";
+    public const string UnsupportedPolymorphismDiscriminatorMemberCollision = "unsupported.polymorphism-discriminator-member-collision";
     public const string UnsupportedMemberMaterializationUnproven = "unsupported.member-materialization-unproven";
 }
 
@@ -152,7 +153,11 @@ internal static class RuleCatalog
         new(
             RuleIds.UnsupportedObjectMaterializationUnproven,
             false,
-            "an abstract or interface object contract has no registered polymorphic derived-type metadata the framework reader can materialize"),
+            "an object contract has no measured concrete construction path or requires polymorphic dispatch without registered derived-type metadata"),
+        new(
+            RuleIds.UnsupportedPolymorphismDiscriminatorMemberCollision,
+            false,
+            "a polymorphic discriminator property name collides with an effective ordinary serialized member name"),
         new(
             RuleIds.UnsupportedMemberMaterializationUnproven,
             false,
@@ -200,6 +205,7 @@ internal static class RecordedKindRules
             RuleIds.UnsupportedAttributeUnlisted,
             RuleIds.UnsupportedConverterConfigurationUnlisted,
             RuleIds.UnsupportedObjectMaterializationUnproven,
+            RuleIds.UnsupportedPolymorphismDiscriminatorMemberCollision,
             RuleIds.UnsupportedMemberMaterializationUnproven,
         },
         RecordedNodeKind.Enumerable => new[]

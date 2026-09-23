@@ -57,6 +57,28 @@ internal enum RecordedDictionaryMaterialization
     Unclassified,
 }
 
+/// <summary>The construction path established for an object reader.</summary>
+internal enum RecordedObjectMaterialization
+{
+    /// <summary>A public parameterless constructor can create the object.</summary>
+    PublicParameterless,
+
+    /// <summary>A single public parameterized constructor is fully bound to effective JSON members.</summary>
+    PublicParameterized,
+
+    /// <summary>A public constructor selected with <c>JsonConstructorAttribute</c> is fully bound.</summary>
+    PublicJsonConstructor,
+
+    /// <summary>A value type can be created through its default construction path.</summary>
+    ValueTypeDefault,
+
+    /// <summary>An abstract or interface contract requires polymorphic discriminator dispatch.</summary>
+    RequiresDiscriminator,
+
+    /// <summary>No measured framework construction path was established.</summary>
+    Unclassified,
+}
+
 /// <summary>One converter the traversal recorded, with the source and the path that declared or registered it.</summary>
 internal sealed record RecordedConverterFact(
     MetadataSourceKind Source,
@@ -171,6 +193,9 @@ internal sealed class RecordedNode
 
     /// <summary>True when the public constructors of an object contract were enumerated and recorded.</summary>
     public bool ConstructorsRecorded { get; set; }
+
+    /// <summary>The measured construction path the framework reader can use for this object contract.</summary>
+    public RecordedObjectMaterialization? ObjectMaterialization { get; set; }
 
     /// <summary>True when the element type of an enumerable contract was recorded.</summary>
     public bool ElementTypeRecorded { get; set; }

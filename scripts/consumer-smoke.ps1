@@ -126,6 +126,8 @@ if (!independent.Changes.Any(change => change.RuleId == "R09.ignore.member-inclu
 RunExtensionDataInteractionRegressions();
 RunPolymorphicMaterializationRegressions();
 RunDictionaryMaterializationRegressions();
+RunConcreteObjectMaterializationRegressions();
+RunDiscriminatorMemberInteractionRegression();
 
 RequireCompatible(Compare(SmokeContext.Default.Int64, SmokeContext.Default.Int32));
 RequireCompatible(Compare(SmokeContext.Default.Int32Array, SmokeContext.Default.ListInt32));
@@ -165,7 +167,7 @@ finally
     File.Delete(malformedPath);
 }
 
-Console.WriteLine("consumer conservatism passed: extension-data, object-reader-materialization, polymorphism, and dictionary-materialization package regressions and positive controls");
+Console.WriteLine("consumer conservatism passed: extension-data, concrete-object construction, discriminator-member interaction, polymorphism, and dictionary-materialization package regressions and positive controls");
 }
 finally
 {
@@ -177,8 +179,14 @@ static JsonDriftReport Compare(JsonTypeInfo later, JsonTypeInfo earlier)
     string path = Path.Combine(Path.GetTempPath(), "jsondrift-pair-" + Guid.NewGuid().ToString("N") + ".json");
     try
     {
-        JsonBaseline.Create(earlier, path, overwrite: false);
-        return JsonDrift.Compare(later, path, JsonCompatibility.ReaderBackward);
+        JsonContract written = JsonBaseline.Create(earlier, path, overwrite: false);
+        JsonContract read = JsonBaseline.Read(path);
+        if (written.CanonicalJson != read.CanonicalJson)
+        {
+            throw new InvalidOperationException("the packaged comparison baseline changed during write/read");
+        }
+
+        return JsonDrift.Compare(later, read, JsonCompatibility.ReaderBackward);
     }
     finally
     {
@@ -302,6 +310,112 @@ static void RunDictionaryMaterializationRegressions()
         RequireCompatible(Compare(dictionary, dictionary));
         RequireCompatible(Compare(writableHolder, writableHolder));
     }
+}
+
+static void RunConcreteObjectMaterializationRegressions()
+{
+    const string EarlierDocument = "{\"Value\":7}";
+
+    foreach (bool sourceGenerated in new[] { false, true })
+    {
+        JsonTypeInfo earlier = TypeInfo(typeof(PublicParameterlessValue), sourceGenerated);
+        JsonTypeInfo privateOnly = TypeInfo(typeof(PrivateConstructorOnlyValue), sourceGenerated);
+        string document = JsonSerializer.Serialize(new PublicParameterlessValue { Value = 7 }, earlier);
+        if (document != EarlierDocument)
+        {
+            throw new InvalidOperationException($"the packaged concrete-construction witness changed: {document}");
+        }
+
+        RequireReadFailure<NotSupportedException>(document, privateOnly);
+        JsonDriftReport root = Compare(privateOnly, earlier);
+        RequireRejected(root, JsonDriftClassification.Unsupported);
+        RequireRule(root, "unsupported.object-materialization-unproven");
+
+        JsonTypeInfo earlierHolder = TypeInfo(typeof(PublicConstructibleHolder), sourceGenerated);
+        JsonTypeInfo privateHolder = TypeInfo(typeof(PrivateConstructibleHolder), sourceGenerated);
+        string nestedDocument = JsonSerializer.Serialize(
+            new PublicConstructibleHolder { Value = new PublicParameterlessValue { Value = 7 } },
+            earlierHolder);
+        RequireReadFailure<NotSupportedException>(nestedDocument, privateHolder);
+        JsonDriftReport nested = Compare(privateHolder, earlierHolder);
+        RequireRejected(nested, JsonDriftClassification.Unsupported);
+        RequireRule(nested, "unsupported.object-materialization-unproven");
+
+        JsonTypeInfo ambiguous = TypeInfo(typeof(AmbiguousConstructorValue), sourceGenerated);
+        RequireReadFailure<NotSupportedException>(document, ambiguous);
+        JsonDriftReport ambiguousReport = Compare(ambiguous, earlier);
+        RequireRejected(ambiguousReport, JsonDriftClassification.Unsupported);
+        RequireRule(ambiguousReport, "unsupported.object-materialization-unproven");
+
+        RequireObjectMaterialization(
+            new PublicParameterlessValue { Value = 7 },
+            TypeInfo(typeof(PublicParameterlessValue), sourceGenerated));
+        RequireObjectMaterialization(
+            new SingleParameterizedValue(7),
+            TypeInfo(typeof(SingleParameterizedValue), sourceGenerated));
+        RequireObjectMaterialization(
+            new JsonConstructorValue(7),
+            TypeInfo(typeof(JsonConstructorValue), sourceGenerated));
+    }
+}
+
+static void RunDiscriminatorMemberInteractionRegression()
+{
+    const string EarlierDocument = "{\"kind\":\"ordinary\"}";
+
+    foreach (bool sourceGenerated in new[] { false, true })
+    {
+        JsonTypeInfo earlier = TypeInfo(typeof(OrdinaryKindMember), sourceGenerated);
+        JsonTypeInfo later = sourceGenerated
+            ? ((IJsonTypeInfoResolver)SmokeContext.Default).GetTypeInfo(
+                typeof(CollidingPolymorphicKind),
+                SmokeContext.Default.Options) ?? throw new InvalidOperationException("source-generated collision metadata is missing")
+            : TypeInfo(typeof(CollidingPolymorphicKind), sourceGenerated: false);
+        string document = JsonSerializer.Serialize(new OrdinaryKindMember { kind = "ordinary" }, earlier);
+        if (document != EarlierDocument)
+        {
+            throw new InvalidOperationException($"the packaged discriminator/member witness changed: {document}");
+        }
+
+        bool preserved = false;
+        try
+        {
+            object? rebound = JsonSerializer.Deserialize(document, later);
+            string reboundDocument = JsonSerializer.Serialize(rebound, later);
+            preserved = JsonNode.DeepEquals(JsonNode.Parse(document), JsonNode.Parse(reboundDocument));
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or NotSupportedException)
+        {
+        }
+
+        if (preserved)
+        {
+            throw new InvalidOperationException("the packaged colliding discriminator/member reader unexpectedly preserved the ordinary member");
+        }
+
+        JsonDriftReport report = Compare(later, earlier);
+        RequireRejected(report, JsonDriftClassification.Unsupported);
+        RequireRule(report, "unsupported.polymorphism-discriminator-member-collision");
+
+        JsonTypeInfo nonColliding = TypeInfo(typeof(ConcretePolymorphicAnimal), sourceGenerated);
+        JsonTypeInfo nonPolymorphic = TypeInfo(typeof(ConcreteAnimal), sourceGenerated);
+        JsonDriftReport positive = Compare(nonColliding, nonPolymorphic);
+        RequireCompatible(positive);
+        RequireRule(positive, "R10e.polymorphism.dispatch-added-concrete");
+    }
+}
+
+static void RequireObjectMaterialization(object value, JsonTypeInfo contract)
+{
+    string document = JsonSerializer.Serialize(value, contract);
+    object? rebound = JsonSerializer.Deserialize(document, contract);
+    if (rebound is null ||
+        !JsonNode.DeepEquals(JsonNode.Parse(document), JsonNode.Parse(JsonSerializer.Serialize(rebound, contract))))
+    {
+        throw new InvalidOperationException($"the packaged object materialization positive control lost data: {contract.Type}");
+    }
+
+    RequireCompatible(Compare(contract, contract));
 }
 
 static void RunPolymorphicMaterializationRegressions()
@@ -645,6 +759,72 @@ public sealed class ConcreteDog : ConcretePolymorphicAnimal
 {
 }
 
+public sealed class PublicParameterlessValue
+{
+    public int Value { get; set; }
+}
+
+public sealed class PrivateConstructorOnlyValue
+{
+    private PrivateConstructorOnlyValue()
+    {
+    }
+
+    public int Value { get; set; }
+}
+
+public sealed class PublicConstructibleHolder
+{
+    public PublicParameterlessValue Value { get; set; } = new();
+}
+
+public sealed class PrivateConstructibleHolder
+{
+    public PrivateConstructorOnlyValue Value { get; set; } = null!;
+}
+
+public sealed class AmbiguousConstructorValue
+{
+    public AmbiguousConstructorValue(int value) => Value = value;
+
+    public AmbiguousConstructorValue(string value) => Value = int.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+
+    public int Value { get; }
+}
+
+public sealed class SingleParameterizedValue
+{
+    public SingleParameterizedValue(int value) => Value = value;
+
+    public int Value { get; }
+}
+
+public sealed class JsonConstructorValue
+{
+    public JsonConstructorValue() => Value = -1;
+
+    [JsonConstructor]
+    public JsonConstructorValue(int value) => Value = value;
+
+    public int Value { get; }
+}
+
+public sealed class OrdinaryKindMember
+{
+    public string kind { get; set; } = string.Empty;
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(CollidingPolymorphicKindDog), "dog")]
+public class CollidingPolymorphicKind
+{
+    public string kind { get; set; } = string.Empty;
+}
+
+public sealed class CollidingPolymorphicKindDog : CollidingPolymorphicKind
+{
+}
+
 public sealed class WritableDictionaryHolder
 {
     public Dictionary<string, int> Values { get; set; } = new();
@@ -690,6 +870,16 @@ public sealed class ReadOnlyDictionaryHolder
 [JsonSerializable(typeof(AbstractDog))]
 [JsonSerializable(typeof(ConcretePolymorphicAnimal))]
 [JsonSerializable(typeof(ConcreteDog))]
+[JsonSerializable(typeof(PublicParameterlessValue))]
+[JsonSerializable(typeof(PrivateConstructorOnlyValue))]
+[JsonSerializable(typeof(PublicConstructibleHolder))]
+[JsonSerializable(typeof(PrivateConstructibleHolder))]
+[JsonSerializable(typeof(AmbiguousConstructorValue))]
+[JsonSerializable(typeof(SingleParameterizedValue))]
+[JsonSerializable(typeof(JsonConstructorValue))]
+[JsonSerializable(typeof(OrdinaryKindMember))]
+[JsonSerializable(typeof(CollidingPolymorphicKind))]
+[JsonSerializable(typeof(CollidingPolymorphicKindDog))]
 [JsonSerializable(typeof(WritableDictionaryHolder))]
 [JsonSerializable(typeof(ReadOnlyDictionaryHolder))]
 public partial class SmokeContext : JsonSerializerContext

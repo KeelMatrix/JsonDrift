@@ -25,7 +25,7 @@ public sealed partial class JsonDriftFoundationTests
 
         Assert.True(contract.IsSupported);
         Assert.Null(contract.UnsupportedReason);
-        Assert.Equal(4, contract.FormatVersion);
+        Assert.Equal(5, contract.FormatVersion);
         Assert.Contains("SimpleEnvelope", contract.RootTypeName, StringComparison.Ordinal);
         Assert.Contains("\n", contract.CanonicalJson, StringComparison.Ordinal);
     }
@@ -375,7 +375,7 @@ public sealed partial class JsonDriftFoundationTests
         Assert.True(report.IsCompatible);
         Assert.Empty(report.Changes);
 
-        File.WriteAllText(path, "{\"formatVersion\":5}\n", new UTF8Encoding(false));
+        File.WriteAllText(path, "{\"formatVersion\":6}\n", new UTF8Encoding(false));
         InvalidDataException error = Assert.Throws<InvalidDataException>(() =>
             JsonDrift.Compare<SimpleEnvelope>(ReflectionOptions(), path, JsonCompatibility.ReaderBackward));
         Assert.Contains("newer than supported", error.Message, StringComparison.Ordinal);
@@ -394,7 +394,7 @@ public sealed partial class JsonDriftFoundationTests
         AssertReadFailure(directory, "malformed.json", "not-json\n", "Baseline is malformed JSON.");
         AssertReadFailure(directory, "foreign.json", "{\"name\":\"other\"}\n", "Baseline is not a JsonDrift canonical contract: missing formatVersion.");
         AssertReadFailure(directory, "old.json", "{\"formatVersion\":0}\n", "Baseline format version 0 is not supported.");
-        AssertReadFailure(directory, "future.json", "{\"formatVersion\":5}\n", "Baseline format version 5 is newer than supported version 4.");
+        AssertReadFailure(directory, "future.json", "{\"formatVersion\":6}\n", "Baseline format version 6 is newer than supported version 5.");
 
         string deep = new string('[', 12) + new string(']', 12) + "\n";
         string depthPath = Path.Combine(directory.Path, "depth.json");
@@ -433,7 +433,7 @@ public sealed partial class JsonDriftFoundationTests
         AssertReadFailure(
             directory,
             "duplicate-member.json",
-            canonical.Replace("  \"formatVersion\": 4,\n", "  \"formatVersion\": 4,\n  \"formatVersion\": 4,\n", StringComparison.Ordinal),
+            canonical.Replace("  \"formatVersion\": 5,\n", "  \"formatVersion\": 5,\n  \"formatVersion\": 5,\n", StringComparison.Ordinal),
             "Baseline contains duplicate JSON members.");
 
         AssertReadFailure(

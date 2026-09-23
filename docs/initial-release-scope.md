@@ -27,7 +27,7 @@ Evidence:
   type (`R10.polymorphism.derived-type-added`), and adding polymorphic dispatch while the declared base remains
   concrete (`R10e.polymorphism.dispatch-added-concrete`). Every other measured change is incompatible under at least one
   policy. The unsupported set is likewise read from the matrix output
-  (`D04.policy.unsupported-count` reports the 73 checks that record unsupported metadata).
+  (`D04.policy.unsupported-count` reports the 71 checks that record unsupported metadata).
 * Two measured changes are deliberately not classified in either direction. A dictionary key-type change is
   reported unsupported (`R07.shape.dictionary-key-type`) because compatibility depends on the earlier key
   value space, which the contract model does not record: the key `"1"` is read back unchanged by an
@@ -69,8 +69,10 @@ Evidence:
   `D06.allowlist.attribute-declaration-coverage` rather than passing silently. The loaded runtime's honored
   `System.Runtime.Serialization` declarations (`DataContract`, `DataMember`, and `IgnoreDataMember`) are
   measured as irrelevant to the default metadata paths, while `[Serializable]` is likewise measured as
-  irrelevant. Constructor selection is denied unless an accepted declaration is measured; the redundant and two-constructor probes,
-  including their reflection and source-generated constructor evidence, keep this rule executable.
+  irrelevant. Public `[JsonConstructor]` selection is accepted only when every parameter is bound to an effective
+  JSON member; redundant and two-constructor probes, including reflection and source-generated evidence, keep
+  that allowlist executable. Concrete objects without a measured public construction path and discriminator
+  names that collide with ordinary serialized members fail closed.
 
 Consequence for the API: one policy is exposed for the first release, so there is no second, weaker definition
 of "compatible" for users to misinterpret. The forward and full measurements already exist in the experiment,

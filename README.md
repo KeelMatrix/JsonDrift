@@ -147,13 +147,15 @@ The measured classification rules and their evidence remain in
 - Unsupported or unclassified metadata is deny-by-default and is never represented as compatible.
 - Extraction accepts `JsonTypeInfo`, reflection-backed `JsonSerializerOptions`, and source-generated
   type information. Application converters are not executed to reverse-engineer behavior.
-- Baselines use canonical JSON format version `4`: UTF-8 without BOM, LF line endings, stable ordering,
+- Baselines use canonical JSON format version `5`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
 - Canonical nodes retain complete nested object, collection-element, and dictionary key/value contracts plus
   dictionary construction capability; repeated types use validated bounded references. Nullable value slots
   are preserved at roots and nested
   edges; collection compatibility is limited to materializers proven to preserve order and multiplicity;
-  member materialization and enum integer-token acceptance are compared explicitly. Root scalar token changes
+  member and containing-object materialization and enum integer-token acceptance are compared explicitly. A
+  concrete object is supported only with a measured public parameterless, single fully-bound public
+  parameterized, or fully-bound public `[JsonConstructor]` construction path. Root scalar token changes
   are incompatible, proven numeric range or precision loss is incompatible, and unclassified transitions are
   unsupported.
 - An optional `[JsonPropertyName]` rename is compatible through later `[JsonExtensionData]` only when the
@@ -161,11 +163,14 @@ The measured classification rules and their evidence remain in
   that can shadow the new name. Required rename destinations remain incompatible; additions or renames that
   collide with an earlier extension-data key space are unsupported. Adding polymorphic dispatch to an object
   with earlier writable extension data is also unsupported because the earlier key space can contain the new
-  discriminator name with an unrecognized discriminator value. A concrete contract becoming an abstract or
+  discriminator name with an unrecognized discriminator value. A discriminator name that collides with an
+  effective ordinary member name is unsupported because the same JSON property can be consumed as dispatch
+  metadata instead of member data. A concrete contract becoming an abstract or
   interface polymorphic contract is incompatible because the later reader requires a discriminator that
   earlier documents do not contain; adding dispatch while the declared base stays concrete retains the measured
-  compatible control. A plain abstract or interface contract without registered polymorphic derived-type
-  metadata is unsupported because the reader cannot materialize it. Concrete dictionary types without a measured
+  compatible control when its discriminator name does not collide with an ordinary member. A plain abstract or
+  interface contract without registered polymorphic derived-type metadata is unsupported because the reader
+  cannot materialize it. Concrete objects without a measured constructor path and concrete dictionary types without a measured
   construction path are unsupported even when their key and value contracts match.
 - `JsonDrift.Compare` compares current `JsonTypeInfo` or serializer options with a baseline path or extracted
   `JsonContract`; `JsonDriftReport.AssertCompatible()` throws `JsonDriftCompatibilityException` for an

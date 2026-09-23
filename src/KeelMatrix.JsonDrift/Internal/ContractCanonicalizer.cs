@@ -15,7 +15,7 @@ namespace KeelMatrix.JsonDrift.Internal;
 internal static class ContractCanonicalizer
 {
     /// <summary>The canonical baseline document format version.</summary>
-    public const int FormatVersion = 4;
+    public const int FormatVersion = 5;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {
@@ -94,6 +94,8 @@ internal static class ContractCanonicalizer
         {
             case RecordedNodeKind.Object:
                 described["extensionData"] = node.Members.Any(static member => member.ExtensionData);
+                described["objectMaterialization"] = ObjectMaterializationName(
+                    node.ObjectMaterialization ?? RecordedObjectMaterialization.Unclassified);
 
                 if (includeMembers)
                 {
@@ -365,5 +367,15 @@ internal static class ContractCanonicalizer
     {
         RecordedDictionaryMaterialization.Constructible => "constructible",
         RecordedDictionaryMaterialization.Unclassified => "unclassified",
+    };
+
+    private static string ObjectMaterializationName(RecordedObjectMaterialization materialization) => materialization switch
+    {
+        RecordedObjectMaterialization.PublicParameterless => "public-parameterless",
+        RecordedObjectMaterialization.PublicParameterized => "public-parameterized",
+        RecordedObjectMaterialization.PublicJsonConstructor => "public-json-constructor",
+        RecordedObjectMaterialization.ValueTypeDefault => "value-type-default",
+        RecordedObjectMaterialization.RequiresDiscriminator => "requires-discriminator",
+        RecordedObjectMaterialization.Unclassified => "unclassified",
     };
 }

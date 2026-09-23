@@ -21,6 +21,7 @@ internal static class DeclaredAttributeFacts
     public static IReadOnlyList<Type> MeasuredTypes { get; } = new[]
     {
         typeof(AllowlistedAttributeProbe),
+        typeof(JsonConstructorAttributeProbe),
         typeof(AttributeProbePolymorphicRoot),
         typeof(AttributeProbePolymorphicKindRoot),
     };

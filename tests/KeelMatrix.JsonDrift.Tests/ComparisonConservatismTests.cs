@@ -62,6 +62,99 @@ public sealed class ComparisonConservatismTests
         Assert.Equal(ContractFactInteractions.Families.Count, errors.Count(error =>
             error.StartsWith("fact-family interaction is unclassified:", StringComparison.Ordinal) &&
             error.Contains("throwaway-family", StringComparison.Ordinal)));
+
+        AssertInvalidNonInteractionReason("the facts use separate canonical fields");
+        AssertInvalidNonInteractionReason("the facts are checked independently");
+    }
+
+    [Fact]
+    public void ConcreteObjectMaterializationMustBeSupportedByTheLaterReader()
+    {
+        const string EarlierDocument = "{\"Value\":7}";
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(PublicParameterlessValue), sourceGenerated);
+            JsonTypeInfo privateOnly = TypeInfo(typeof(PrivateConstructorOnlyValue), sourceGenerated);
+            string document = JsonSerializer.Serialize(new PublicParameterlessValue { Value = 7 }, earlier);
+
+            Assert.Equal(EarlierDocument, document);
+            Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize(document, privateOnly));
+
+            JsonDriftReport rootReport = CompareThroughBaselineFile(privateOnly, earlier);
+            AssertRejected(rootReport, JsonDriftClassification.Unsupported);
+            Assert.Contains(rootReport.Changes, change =>
+                change.Path == "root" &&
+                change.RuleId == "unsupported.object-materialization-unproven");
+
+            JsonTypeInfo earlierHolder = TypeInfo(typeof(PublicConstructibleHolder), sourceGenerated);
+            JsonTypeInfo privateHolder = TypeInfo(typeof(PrivateConstructibleHolder), sourceGenerated);
+            string nestedDocument = JsonSerializer.Serialize(
+                new PublicConstructibleHolder { Value = new PublicParameterlessValue { Value = 7 } },
+                earlierHolder);
+
+            Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize(nestedDocument, privateHolder));
+            JsonDriftReport nestedReport = CompareThroughBaselineFile(privateHolder, earlierHolder);
+            AssertRejected(nestedReport, JsonDriftClassification.Unsupported);
+            Assert.Contains(nestedReport.Changes, change =>
+                change.Path == "root member 'Value'" &&
+                change.RuleId == "unsupported.object-materialization-unproven");
+
+            JsonTypeInfo ambiguous = TypeInfo(typeof(AmbiguousConstructorValue), sourceGenerated);
+            Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize(EarlierDocument, ambiguous));
+            JsonDriftReport ambiguousReport = CompareThroughBaselineFile(ambiguous, earlier);
+            AssertRejected(ambiguousReport, JsonDriftClassification.Unsupported);
+            Assert.Contains(ambiguousReport.Changes, change =>
+                change.Path == "root" &&
+                change.RuleId == "unsupported.object-materialization-unproven");
+
+            AssertObjectMaterializationPositiveControl<PublicParameterlessValue>(
+                new PublicParameterlessValue { Value = 7 },
+                sourceGenerated);
+            AssertObjectMaterializationPositiveControl<SingleParameterizedValue>(
+                new SingleParameterizedValue(7),
+                sourceGenerated);
+            AssertObjectMaterializationPositiveControl<JsonConstructorValue>(
+                new JsonConstructorValue(7),
+                sourceGenerated);
+        }
+    }
+
+    [Fact]
+    public void DiscriminatorMemberNameCollisionsFailClosed()
+    {
+        const string EarlierDocument = "{\"kind\":\"ordinary\"}";
+
+        foreach (bool sourceGenerated in MetadataPaths())
+        {
+            JsonTypeInfo earlier = TypeInfo(typeof(OrdinaryKindMember), sourceGenerated);
+            JsonTypeInfo later = sourceGenerated
+                ? ((IJsonTypeInfoResolver)ComparisonSourceContext.Default).GetTypeInfo(
+                    typeof(CollidingPolymorphicKind),
+                    ComparisonSourceContext.Default.Options) ?? throw new InvalidOperationException("Missing generated metadata for the colliding polymorphic contract.")
+                : TypeInfo(typeof(CollidingPolymorphicKind), sourceGenerated: false);
+            string document = JsonSerializer.Serialize(
+                new OrdinaryKindMember { kind = "ordinary" },
+                earlier);
+
+            Assert.Equal(EarlierDocument, document);
+            Exception? readFailure = Record.Exception(() => JsonSerializer.Deserialize(document, later));
+            Assert.NotNull(readFailure);
+            Assert.True(readFailure is JsonException or InvalidOperationException or NotSupportedException);
+
+            JsonDriftReport report = CompareThroughBaselineFile(later, earlier);
+            AssertRejected(report, JsonDriftClassification.Unsupported);
+            Assert.Contains(report.Changes, change =>
+                change.Path == "root" &&
+                change.RuleId == "unsupported.polymorphism-discriminator-member-collision");
+
+            JsonTypeInfo nonColliding = TypeInfo(typeof(ConcretePolymorphicAnimal), sourceGenerated);
+            JsonTypeInfo nonPolymorphic = TypeInfo(typeof(ConcreteAnimal), sourceGenerated);
+            JsonDriftReport positive = CompareThroughBaselineFile(nonColliding, nonPolymorphic);
+            AssertCompatible(positive);
+            Assert.Contains(positive.Changes, change =>
+                change.RuleId == "R10e.polymorphism.dispatch-added-concrete");
+        }
     }
 
     [Fact]
@@ -556,6 +649,35 @@ public sealed class ComparisonConservatismTests
         yield return true;
     }
 
+    private static void AssertInvalidNonInteractionReason(string reason)
+    {
+        ContractFactInteraction[] entries = ContractFactInteractions.Entries.ToArray();
+        ContractFactInteraction replaced = entries[0];
+        entries[0] = new ContractFactInteraction(
+            replaced.EarlierFamily,
+            replaced.LaterFamily,
+            Rule: null,
+            Witness: null,
+            NonInteractionReason: reason);
+
+        Assert.Contains(
+            ContractFactInteractions.ValidateCoverage(ContractFactInteractions.Families, entries),
+            error => error.StartsWith("non-interaction reason is not wire-specific:", StringComparison.Ordinal));
+    }
+
+    private static void AssertObjectMaterializationPositiveControl<T>(T value, bool sourceGenerated)
+    {
+        JsonTypeInfo contract = TypeInfo(typeof(T), sourceGenerated);
+        string document = JsonSerializer.Serialize(value, contract);
+        object? rebound = JsonSerializer.Deserialize(document, contract);
+
+        Assert.NotNull(rebound);
+        Assert.True(JsonNode.DeepEquals(
+            JsonNode.Parse(document),
+            JsonNode.Parse(JsonSerializer.Serialize(rebound, contract))));
+        AssertCompatible(CompareThroughBaselineFile(contract, contract));
+    }
+
     private static JsonTypeInfo TypeInfo(Type type, bool sourceGenerated) =>
         sourceGenerated
             ? ComparisonSourceContext.Default.GetTypeInfo(type) ?? throw new InvalidOperationException($"Missing generated metadata for {type}.")
@@ -578,6 +700,25 @@ public sealed class ComparisonConservatismTests
 
     private static JsonDriftReport Compare(JsonTypeInfo later, JsonTypeInfo earlier) =>
         JsonDrift.Compare(later, RoundTripBaseline(JsonDrift.Extract(earlier)), JsonCompatibility.ReaderBackward);
+
+    private static JsonDriftReport CompareThroughBaselineFile(JsonTypeInfo later, JsonTypeInfo earlier)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "jsondrift-object-materialization-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "baseline.json");
+
+        try
+        {
+            JsonContract written = JsonBaseline.Create(earlier, path, overwrite: false);
+            JsonContract read = JsonBaseline.Read(path);
+            Assert.Equal(written.CanonicalJson, read.CanonicalJson);
+            return JsonDrift.Compare(later, path, JsonCompatibility.ReaderBackward);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
     private static void AssertRejected(
         JsonDriftReport report,
@@ -688,6 +829,56 @@ public sealed class ComparisonConservatismTests
     internal sealed class WritableValue
     {
         public int Value { get; set; }
+    }
+
+    internal sealed class PublicParameterlessValue
+    {
+        public int Value { get; set; }
+    }
+
+    internal sealed class PrivateConstructorOnlyValue
+    {
+        private PrivateConstructorOnlyValue()
+        {
+        }
+
+        public int Value { get; set; }
+    }
+
+    internal sealed class PublicConstructibleHolder
+    {
+        public PublicParameterlessValue Value { get; set; } = new();
+    }
+
+    internal sealed class PrivateConstructibleHolder
+    {
+        public PrivateConstructorOnlyValue Value { get; set; } = null!;
+    }
+
+    internal sealed class AmbiguousConstructorValue
+    {
+        public AmbiguousConstructorValue(int value) => Value = value;
+
+        public AmbiguousConstructorValue(string value) => Value = int.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+
+        public int Value { get; }
+    }
+
+    internal sealed class SingleParameterizedValue
+    {
+        public SingleParameterizedValue(int value) => Value = value;
+
+        public int Value { get; }
+    }
+
+    internal sealed class JsonConstructorValue
+    {
+        public JsonConstructorValue() => Value = -1;
+
+        [JsonConstructor]
+        public JsonConstructorValue(int value) => Value = value;
+
+        public int Value { get; }
     }
 
     internal sealed class GetterOnlyValue
@@ -878,6 +1069,22 @@ public sealed class ComparisonConservatismTests
     {
     }
 
+    internal sealed class OrdinaryKindMember
+    {
+        public string kind { get; set; } = string.Empty;
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(CollidingPolymorphicKindDog), "dog")]
+    internal class CollidingPolymorphicKind
+    {
+        public string kind { get; set; } = string.Empty;
+    }
+
+    internal sealed class CollidingPolymorphicKindDog : CollidingPolymorphicKind
+    {
+    }
+
     internal enum CollisionState
     {
         Ready = 1,
@@ -918,6 +1125,13 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(HashSet<int>))]
 [JsonSerializable(typeof(SortedSet<int>))]
 [JsonSerializable(typeof(ComparisonConservatismTests.WritableValue))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PublicParameterlessValue))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PrivateConstructorOnlyValue))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PublicConstructibleHolder))]
+[JsonSerializable(typeof(ComparisonConservatismTests.PrivateConstructibleHolder))]
+[JsonSerializable(typeof(ComparisonConservatismTests.AmbiguousConstructorValue))]
+[JsonSerializable(typeof(ComparisonConservatismTests.SingleParameterizedValue))]
+[JsonSerializable(typeof(ComparisonConservatismTests.JsonConstructorValue))]
 [JsonSerializable(typeof(ComparisonConservatismTests.GetterOnlyValue))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ConstructorBoundValue))]
 [JsonSerializable(typeof(ComparisonConservatismTests.WireState))]
@@ -945,6 +1159,9 @@ public sealed class ComparisonConservatismTests
 [JsonSerializable(typeof(ComparisonConservatismTests.AbstractDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ConcretePolymorphicAnimal))]
 [JsonSerializable(typeof(ComparisonConservatismTests.ConcreteDog))]
+[JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryKindMember))]
+[JsonSerializable(typeof(ComparisonConservatismTests.CollidingPolymorphicKind))]
+[JsonSerializable(typeof(ComparisonConservatismTests.CollidingPolymorphicKindDog))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV1))]
 [JsonSerializable(typeof(ComparisonConservatismTests.OrdinaryMemberV2))]
 [JsonSerializable(typeof(ComparisonConservatismTests.WritableDictionaryHolder))]

@@ -163,30 +163,31 @@ internal static class AttributeRules
         string? reason = ContractClassifier.DescribeUnsupported(withAttribute);
         bool recorded = withDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
         bool absentWithoutAttribute = !withoutDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
-        bool denied = string.Equals(
-            ContractDocument.RootRule(withDocument),
-            RuleIds.UnsupportedAttributeUnlisted,
-            StringComparison.Ordinal);
         bool wireUnchanged = string.Equals(withoutWire, withWire, StringComparison.Ordinal);
         bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
         bool withoutSupported = ContractDocument.OverallSupported(withoutDocument);
-        bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
-        bool assertionFailed = AssertUnsupported(id, withAttribute, reason);
-        bool passed = recorded && absentWithoutAttribute && denied && wireUnchanged && documentDiffers &&
-            withoutSupported && withUnsupported && assertionFailed;
+        bool withSupported = ContractDocument.OverallSupported(withDocument);
+        JsonDriftReport report = JsonDrift.Compare(
+            withAttribute,
+            JsonDrift.Extract(withoutAttribute),
+            JsonCompatibility.ReaderBackward);
+        bool compatible = report.IsCompatible;
+        bool assertionPassed = TryAssertCompatible(report);
+        bool passed = recorded && absentWithoutAttribute && wireUnchanged && documentDiffers &&
+            withoutSupported && withSupported && compatible && assertionPassed && reason is null;
 
         return Bind(
             Check.Assert(
                 id,
                 "Declared serialization attributes",
                 "a redundant [JsonConstructor] declaration is added to a type with one public parameterized constructor",
-                Expected,
-                passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
-                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withUnsupported ? "Unsupported" : "Supported")}, overall={(withUnsupported ? "Unsupported" : "Supported")}",
+                "metadata=Supported, canonical=Supported, overall=Compatible",
+                passed ? "metadata=Supported, canonical=Supported, overall=Compatible" :
+                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withSupported ? "Supported" : "Unsupported")}, overall={report.Outcome}",
                 $"recorded={recorded}; absentWithoutAttribute={absentWithoutAttribute}; wireUnchanged={wireUnchanged}; " +
                 $"documentDiffers={documentDiffers}; withoutWire={withoutWire}; withWire={withWire}; " +
-                $"withoutSupported={withoutSupported}; withUnsupported={withUnsupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
-                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionFailed={assertionFailed}",
+                $"withoutSupported={withoutSupported}; withSupported={withSupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
+                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionPassed={assertionPassed}",
                 passed),
             id);
     }
@@ -204,10 +205,6 @@ internal static class AttributeRules
         string withDocument = ContractCanonicalizer.Canonicalize(withAttribute);
         string? reason = ContractClassifier.DescribeUnsupported(withAttribute);
         bool recorded = withDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
-        bool denied = string.Equals(
-            ContractDocument.RootRule(withDocument),
-            RuleIds.UnsupportedAttributeUnlisted,
-            StringComparison.Ordinal);
         bool bindingDiffers = withoutRead.ReboundedDocument == "{\"Quantity\":1}" &&
             withRead.ReboundedDocument == "{\"Quantity\":7}";
         bool documentDiffers = !string.Equals(withoutDocument, withDocument, StringComparison.Ordinal);
@@ -217,24 +214,30 @@ internal static class AttributeRules
                 ContractDocument.RootRule(withoutDocument),
                 RuleIds.UnsupportedMemberMaterializationUnproven,
                 StringComparison.Ordinal);
-        bool withUnsupported = !ContractDocument.OverallSupported(withDocument);
-        bool assertionFailed = AssertUnsupported(id, withAttribute, reason);
-        bool passed = recorded && denied && bindingDiffers && documentDiffers && withoutUnsupportedForMaterialization &&
-            withUnsupported && assertionFailed && withoutRead.Fault is null && withRead.Fault is null;
+        bool withSupported = ContractDocument.OverallSupported(withDocument);
+        JsonDriftReport report = JsonDrift.Compare(
+            withAttribute,
+            JsonDrift.Extract(withAttribute),
+            JsonCompatibility.ReaderBackward);
+        bool compatible = report.IsCompatible;
+        bool assertionPassed = TryAssertCompatible(report);
+        bool passed = recorded && bindingDiffers && documentDiffers && withoutUnsupportedForMaterialization &&
+            withSupported && compatible && assertionPassed && reason is null &&
+            withoutRead.Fault is null && withRead.Fault is null;
 
         return Bind(
             Check.Assert(
                 id,
                 "Declared serialization attributes",
                 "[JsonConstructor] selects the parameterized constructor when two public constructors bind the same JSON property differently",
-                Expected,
-                passed ? "metadata=Unsupported, canonical=Unsupported, overall=Unsupported" :
-                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withUnsupported ? "Unsupported" : "Supported")}, overall={(withUnsupported ? "Unsupported" : "Supported")}",
+                "metadata=Supported, canonical=Supported, overall=Compatible",
+                passed ? "metadata=Supported, canonical=Supported, overall=Compatible" :
+                    $"metadata={(reason is null ? "Supported" : "Unsupported")}, canonical={(withSupported ? "Supported" : "Unsupported")}, overall={report.Outcome}",
                 $"recorded={recorded}; bindingDiffers={bindingDiffers}; withoutRead={Check.Describe(withoutRead)}; " +
                 $"withRead={Check.Describe(withRead)}; documentDiffers={documentDiffers}; " +
                 $"withoutUnsupportedForMaterialization={withoutUnsupportedForMaterialization}; " +
-                $"withUnsupported={withUnsupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
-                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionFailed={assertionFailed}",
+                $"withSupported={withSupported}; rule={ContractDocument.RootRule(withDocument) ?? "<missing>"}; " +
+                $"reason={(reason is null ? "none" : MetadataDiscoverySources.Reason(reason))}; assertionPassed={assertionPassed}",
                 passed),
             id);
     }
@@ -394,6 +397,19 @@ internal static class AttributeRules
         }
     }
 
+    private static bool TryAssertCompatible(JsonDriftReport report)
+    {
+        try
+        {
+            report.AssertCompatible();
+            return true;
+        }
+        catch (JsonDriftCompatibilityException)
+        {
+            return false;
+        }
+    }
+
     private static CheckOutcome AcceptedAttributesRecorded()
     {
         var failures = new List<string>();
@@ -499,20 +515,19 @@ internal static class AttributeRules
             TelemetryContext.Default.ConstructorBindingWithAttribute);
         bool reflectionRecorded = reflectionDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
         bool generatedRecorded = generatedDocument.Contains("JsonConstructorAttribute", StringComparison.Ordinal);
-        bool unsupported = !ContractDocument.OverallSupported(reflectionDocument) &&
-            !ContractDocument.OverallSupported(generatedDocument) &&
-            ContractDocument.RootRule(generatedDocument) == RuleIds.UnsupportedAttributeUnlisted;
+        bool supported = ContractDocument.OverallSupported(reflectionDocument) &&
+            ContractDocument.OverallSupported(generatedDocument);
         bool bindingObserved = generatedRead.Fault is null && generatedRead.ReboundedDocument == "{\"Quantity\":7}";
-        bool passed = reflectionRecorded && generatedRecorded && unsupported && bindingObserved;
+        bool passed = reflectionRecorded && generatedRecorded && supported && bindingObserved;
 
         return Bind(
             Check.Assert(
                 id,
                 "Source-generated metadata",
                 "the constructor declaration is recorded from reflection for a source-generated JsonTypeInfo, and source-generated metadata honors its selected constructor",
-                "reflection=Recorded, source-generated=Recorded, source-generated=Unsupported, binding=7",
-                passed ? "reflection=Recorded, source-generated=Recorded, source-generated=Unsupported, binding=7" : "declared-attributes=MissingOrSupported, binding=unproven",
-                $"reflectionRecorded={reflectionRecorded}; generatedRecorded={generatedRecorded}; unsupported={unsupported}; " +
+                "reflection=Recorded, source-generated=Recorded, both=Supported, binding=7",
+                passed ? "reflection=Recorded, source-generated=Recorded, both=Supported, binding=7" : "declared-attributes=MissingOrUnsupported, binding=unproven",
+                $"reflectionRecorded={reflectionRecorded}; generatedRecorded={generatedRecorded}; supported={supported}; " +
                 $"bindingObserved={bindingObserved}; generatedRead={Check.Describe(generatedRead)}",
                 passed),
             id);

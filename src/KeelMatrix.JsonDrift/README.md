@@ -152,21 +152,31 @@ arbitrary key space can already contain the later discriminator property name wi
 reader does not recognize; `Compare` reports `R10c.polymorphism.extension-data-discriminator-collision`
 instead of accepting that transition.
 
+A discriminator property name that collides with an effective ordinary serialized member is also unsupported.
+Both values occupy the same JSON property name, so the later reader can consume ordinary member data as dispatch
+metadata; `Compare` reports `unsupported.polymorphism-discriminator-member-collision`.
+
 A concrete non-polymorphic contract becoming an abstract or interface polymorphic contract is incompatible:
 earlier documents contain no type discriminator, and the later reader cannot materialize the declared base.
 `Compare` reports `R10d.polymorphism.discriminator-required`. Adding dispatch while the base stays concrete
-retains the measured compatible control under `R10e.polymorphism.dispatch-added-concrete`.
+retains the measured compatible control under `R10e.polymorphism.dispatch-added-concrete` only when the
+discriminator name does not collide with an ordinary member.
 
 A plain abstract or interface contract without registered polymorphic derived-type metadata is unsupported.
 The framework reader cannot materialize that declared type, so `Compare` reports
 `unsupported.object-materialization-unproven` instead of accepting an unchanged member shape.
 
+Concrete objects also require measured construction evidence. A public parameterless constructor, one fully
+bound public parameterized constructor, or one fully bound public constructor selected with `[JsonConstructor]`
+is supported. A private-constructor-only class or an ambiguous constructor set reports
+`unsupported.object-materialization-unproven`, including when reached through a writable member.
+
 `JsonDrift.Compare` also accepts an already-extracted `JsonContract`. After an intentional change, use
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.
 Reading never rewrites a baseline.
 
-Canonical baseline documents use `formatVersion: 4`. The format records complete nested object, collection
-element, and dictionary key/value contract nodes plus dictionary construction capability, while repeated types
+Canonical baseline documents use `formatVersion: 5`. The format records complete nested object, collection
+element, and dictionary key/value contract nodes plus object and dictionary construction capability, while repeated types
 use validated bounded references so recursive contracts terminate. Polymorphic records include whether the
 declared base requires a discriminator for reader materialization. Nullable value slots, member materialization
 capability, collection order and multiplicity semantics, and enum integer-token acceptance are recorded and

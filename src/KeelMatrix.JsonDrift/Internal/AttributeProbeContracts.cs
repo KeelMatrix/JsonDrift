@@ -33,6 +33,14 @@ internal sealed class AllowlistedAttributeProbe
 
 }
 
+internal sealed class JsonConstructorAttributeProbe
+{
+    [JsonConstructor]
+    public JsonConstructorAttributeProbe(int value) => Value = value;
+
+    public int Value { get; }
+}
+
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(AttributeProbeKindDog), "dog")]
 internal abstract class AttributeProbePolymorphicKindRoot

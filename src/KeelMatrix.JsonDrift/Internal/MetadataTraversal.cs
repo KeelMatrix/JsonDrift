@@ -224,7 +224,7 @@ internal static class MetadataTraversal
                 node.Members.Add(ignored);
             }
 
-            RecordConstructorParameters(node, type, depth);
+            RecordConstructorParameters(node, info, type, depth);
             RecordPolymorphism(node, info, depth);
 
             return RecordedNodeKind.Object;
@@ -289,7 +289,7 @@ internal static class MetadataTraversal
             return RecordedNodeKind.Scalar;
         }
 
-        private void RecordConstructorParameters(RecordedNode node, Type type, int depth)
+        private void RecordConstructorParameters(RecordedNode node, JsonTypeInfo info, Type type, int depth)
         {
             ConstructorInfo[] constructors;
 
@@ -304,6 +304,7 @@ internal static class MetadataTraversal
             }
 
             node.ConstructorsRecorded = true;
+            node.ObjectMaterialization = ObjectMaterialization(info, type, constructors);
 
             foreach (ConstructorInfo constructor in constructors.OrderBy(
                 static constructor => constructor.ToString(),
@@ -323,6 +324,80 @@ internal static class MetadataTraversal
                             depth + 1)));
                 }
             }
+        }
+
+        private static RecordedObjectMaterialization ObjectMaterialization(
+            JsonTypeInfo info,
+            Type type,
+            IReadOnlyList<ConstructorInfo> constructors)
+        {
+            if (type.IsAbstract || type.IsInterface)
+            {
+                return RecordedObjectMaterialization.RequiresDiscriminator;
+            }
+
+            ConstructorInfo[] attributed = constructors
+                .Where(static constructor => constructor.GetCustomAttribute<JsonConstructorAttribute>(inherit: false) is not null)
+                .ToArray();
+            if (attributed.Length == 1 &&
+                attributed[0].IsPublic &&
+                ConstructorParametersAreBound(info, attributed[0]))
+            {
+                return RecordedObjectMaterialization.PublicJsonConstructor;
+            }
+
+            if (attributed.Length > 0)
+            {
+                return RecordedObjectMaterialization.Unclassified;
+            }
+
+            ConstructorInfo[] publicConstructors = constructors
+                .Where(static constructor => constructor.IsPublic)
+                .ToArray();
+            if (publicConstructors.Any(static constructor => constructor.GetParameters().Length == 0))
+            {
+                return RecordedObjectMaterialization.PublicParameterless;
+            }
+
+            if (publicConstructors.Length == 1 && ConstructorParametersAreBound(info, publicConstructors[0]))
+            {
+                return RecordedObjectMaterialization.PublicParameterized;
+            }
+
+            return type.IsValueType
+                ? RecordedObjectMaterialization.ValueTypeDefault
+                : RecordedObjectMaterialization.Unclassified;
+        }
+
+        private static bool ConstructorParametersAreBound(JsonTypeInfo info, ConstructorInfo constructor)
+        {
+            ParameterInfo[] parameters = constructor.GetParameters();
+            if (parameters.Length == 0)
+            {
+                return true;
+            }
+
+            var boundPositions = new HashSet<int>();
+            foreach (JsonPropertyInfo property in info.Properties)
+            {
+                JsonParameterInfo? parameter;
+
+                try
+                {
+                    parameter = property.AssociatedParameter;
+                }
+                catch (InvalidOperationException)
+                {
+                    return false;
+                }
+
+                if (parameter is not null)
+                {
+                    boundPositions.Add(parameter.Position);
+                }
+            }
+
+            return parameters.All(parameter => boundPositions.Contains(parameter.Position));
         }
 
         private void RecordPolymorphism(RecordedNode node, JsonTypeInfo info, int depth)

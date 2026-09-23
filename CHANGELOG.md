@@ -21,8 +21,8 @@ All notable changes to this project are documented in this file. The format is b
   presence constraints and the earlier extension-data key space are accounted for. Arbitrary unallowlisted
   serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
-- Canonical baseline format 4 records complete nested object, collection-element, and dictionary key/value
-  contract graphs, including dictionary construction capability and whether a polymorphic base requires a type
+- Canonical baseline format 5 records complete nested object, collection-element, and dictionary key/value
+  contract graphs, including concrete object and dictionary construction capability and whether a polymorphic base requires a type
   discriminator for reader materialization, with bounded references for recursive types.
 - Root scalar token changes, nested contract changes, and evidenced numeric range, signedness, fractional, and
   precision-loss transitions are classified fail-closed by the shipping comparison; unclassified scalar and
@@ -33,7 +33,8 @@ All notable changes to this project are documented in this file. The format is b
 - A recorded-fact comparison rule table binds every traversed fact to a measured preservation witness or an
   explicit non-contract reason; an automated gate rejects uncovered facts and every rule gap fails closed.
 - A pairwise contract-fact interaction table classifies every family pair with a measured witness or an explicit
-  non-interaction reason; its gate rejects a newly introduced family until every pair is classified.
+  wire-level non-interaction reason; its gate rejects generic or internal-layout justifications and a newly
+  introduced family until every pair is classified.
 - Nullable value slots are retained at roots and nested edges, writable-member materialization is checked,
   collection compatibility is restricted to order-and-multiplicity-preserving materializers, enum integer-token
   acceptance is compared, abstract and interface readers without registered polymorphic derived types are
@@ -57,6 +58,11 @@ All notable changes to this project are documented in this file. The format is b
   space can collide with the new name and supply an incompatible token.
 - Dictionary support and comparison now require a measured construction path, so concrete read-only or otherwise
   unproven dictionary materializers report `Unsupported` at roots and nested writable members.
+- Concrete object support now requires a measured public parameterless, single fully-bound public parameterized,
+  or fully-bound public `[JsonConstructor]` path; private-constructor-only and ambiguous construction paths report
+  `Unsupported` at roots and nested writable members.
+- Polymorphic discriminator property names that collide with effective ordinary member names now report
+  `Unsupported`, preventing ordinary member data from being reinterpreted as dispatch metadata.
 - Package inspection now allowlists only the generated `nuget.psmdcp` or 32-character hexadecimal core-properties
   entry and rejects unexpected `.psmdcp` names and other artifact mutations.
 - Release validation now checks the tag, package version, finalized changelog, exact package and symbol archives,

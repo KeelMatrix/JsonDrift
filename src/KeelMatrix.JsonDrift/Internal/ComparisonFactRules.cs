@@ -76,6 +76,11 @@ internal static class ComparisonFactRules
             "test:DictionaryMaterializationInteractionsFailClosed",
             Props<RecordedNode>(nameof(RecordedNode.DictionaryMaterialization))),
         Compared(
+            "object materialization capability",
+            "supported.object, unsupported.object-materialization-unproven",
+            "test:ConcreteObjectMaterializationMustBeSupportedByTheLaterReader",
+            Props<RecordedNode>(nameof(RecordedNode.ObjectMaterialization))),
+        Compared(
             "member serialized identity",
             "R02.property-*, R03.serialized-name.*",
             "matrix:R02.property-removal, matrix:R03.serialized-name.json-property-name",
