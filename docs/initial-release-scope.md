@@ -27,7 +27,7 @@ Evidence:
   type (`R10.polymorphism.derived-type-added`), and adding polymorphic dispatch while the declared base remains
   concrete (`R10e.polymorphism.dispatch-added-concrete`). Every other measured change is incompatible under at least one
   policy. The unsupported set is likewise read from the matrix output
-  (`D04.policy.unsupported-count` reports the 71 checks that record unsupported metadata).
+  (`D04.policy.unsupported-count` reports the 76 checks that record unsupported metadata).
 * Two measured changes are deliberately not classified in either direction. A dictionary key-type change is
   reported unsupported (`R07.shape.dictionary-key-type`) because compatibility depends on the earlier key
   value space, which the contract model does not record: the key `"1"` is read back unchanged by an
@@ -39,7 +39,7 @@ Evidence:
   which a rename or removal is accepted in the reverse direction while the value is silently dropped. The
   parse-only variant has its own rule-by-rule proof obligation and is not part of the measured matrix.
 * `ReaderBackward` is the only policy whose semantics are proven for every shipped rule in both a change case
-  and an unchanged-contract control case: the matrix runs 260 executed checks and all of them agree with the
+  and an unchanged-contract control case: the matrix runs 266 executed checks and all of them agree with the
   recorded classification. The count is asserted by `D04.matrix.check-count`, so adding, removing, or
   reclassifying a check fails the matrix until this document is updated with it.
 * The invariant that unsupported or opaque metadata never maps to compatible is enforced by construction
@@ -58,7 +58,10 @@ Evidence:
   recorded under, so a change of an accepted option value is a document difference
   (`D08.canonical-document.options-recorded`), and it carries an aggregate support state as well as a root flag
   (`R15.canonical-document.aggregate-support-state`), so a report layer never infers safety from a root flag
-  while nested metadata is unsupported. An executable adversarial set (`A01.adversarial.*`) keeps trying to
+  while nested metadata is unsupported. The runtime serializer-option inventory reflects all 29 public
+  `JsonSerializerOptions` properties from the pinned assembly, requires one reviewed disposition for each,
+  and fails its synthetic unclassified-property mutation control without changing the canonical tree. An
+  executable adversarial set (`A01.adversarial.*`) keeps trying to
   hide opaque metadata behind a path no rule names, and every case has to fail closed.
 
   Declared serialization metadata is closed over the loaded `System.Text.Json` assembly: every class deriving

@@ -128,6 +128,7 @@ RunPolymorphicMaterializationRegressions();
 RunDictionaryMaterializationRegressions();
 RunConcreteObjectMaterializationRegressions();
 RunDiscriminatorMemberInteractionRegression();
+RunIgnoreNullValuesRegression();
 
 RequireCompatible(Compare(SmokeContext.Default.Int64, SmokeContext.Default.Int32));
 RequireCompatible(Compare(SmokeContext.Default.Int32Array, SmokeContext.Default.ListInt32));
@@ -282,6 +283,51 @@ static void RunExtensionDataInteractionRegressions()
         RequireCompatible(Compare(
             TypeInfo(typeof(OrdinaryAdditionV2), sourceGenerated),
             TypeInfo(typeof(OrdinaryAdditionV1), sourceGenerated)));
+    }
+}
+
+static void RunIgnoreNullValuesRegression()
+{
+    var earlierOptions = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+    var laterOptions = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+#pragma warning disable SYSLIB0020
+    laterOptions.IgnoreNullValues = true;
+#pragma warning restore SYSLIB0020
+    var value = new IgnoreNullPayload { Id = 1, Note = null };
+    string earlierDocument = JsonSerializer.Serialize(value, earlierOptions);
+    string laterDocument = JsonSerializer.Serialize(value, laterOptions);
+    IgnoreNullPayload rebound = JsonSerializer.Deserialize<IgnoreNullPayload>(earlierDocument, laterOptions)
+        ?? throw new InvalidOperationException("the packaged earlier null document did not deserialize");
+    string reboundDocument = JsonSerializer.Serialize(rebound, laterOptions);
+    if (earlierDocument == laterDocument || earlierDocument == reboundDocument)
+    {
+        throw new InvalidOperationException("the packaged IgnoreNullValues wire regression did not differ");
+    }
+
+    string baselinePath = Path.Combine(Path.GetTempPath(), "jsondrift-ignore-null-" + Guid.NewGuid().ToString("N") + ".json");
+    try
+    {
+        JsonTypeInfo earlier = earlierOptions.GetTypeInfo(typeof(IgnoreNullPayload));
+        JsonTypeInfo later = laterOptions.GetTypeInfo(typeof(IgnoreNullPayload));
+        JsonContract extracted = JsonDrift.Extract(earlier);
+        JsonBaseline.Create(earlier, baselinePath, overwrite: false);
+        JsonContract read = JsonBaseline.Read(baselinePath);
+        if (extracted.CanonicalJson != read.CanonicalJson)
+        {
+            throw new InvalidOperationException("the packaged IgnoreNullValues baseline changed during write/read");
+        }
+
+        JsonDriftReport report = JsonDrift.Compare(later, read, JsonCompatibility.ReaderBackward);
+        RequireRejected(report);
+        if (!report.Changes.Any(change => change.Path == "options.ignoreNullValues"))
+        {
+            throw new InvalidOperationException("the packaged comparison did not report the IgnoreNullValues option path");
+        }
+        Console.WriteLine($"IgnoreNullValues package regression passed: earlier={earlierDocument}; later={laterDocument}; rebound={reboundDocument}; outcome={report.Outcome}; assertion=threw");
+    }
+    finally
+    {
+        File.Delete(baselinePath);
     }
 }
 
@@ -643,6 +689,13 @@ static void RequireCompatible(JsonDriftReport report)
 public sealed class OrderEnvelopeV1
 {
     public int Id { get; set; }
+}
+
+public sealed class IgnoreNullPayload
+{
+    public int Id { get; set; }
+
+    public string? Note { get; set; }
 }
 
 public sealed class OrderEnvelopeV2

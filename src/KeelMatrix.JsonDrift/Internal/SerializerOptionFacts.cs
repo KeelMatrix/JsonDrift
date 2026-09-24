@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+#pragma warning disable SYSLIB0020
+
 namespace KeelMatrix.JsonDrift.Internal;
 
 /// <summary>
@@ -57,6 +59,21 @@ internal enum ContractOptionKind
 
     /// <summary>The handling used when a member is populated by deserialization.</summary>
     PreferredObjectCreationHandling,
+
+    /// <summary>Whether duplicate JSON property names are accepted by the reader.</summary>
+    AllowDuplicateProperties,
+
+    /// <summary>Whether polymorphic metadata may appear after ordinary properties.</summary>
+    AllowOutOfOrderMetadataProperties,
+
+    /// <summary>Whether null-valued members are omitted and ignored.</summary>
+    IgnoreNullValues,
+
+    /// <summary>Whether public fields participate in the contract.</summary>
+    IncludeFields,
+
+    /// <summary>How values typed as <c>object</c> are materialized by the reader.</summary>
+    UnknownTypeHandling,
 }
 
 /// <summary>One recorded serializer option value.</summary>
@@ -113,6 +130,36 @@ internal static class SerializerOptionFacts
         ContractOptionKind.RespectNullableAnnotations => "respectNullableAnnotations",
         ContractOptionKind.RespectRequiredConstructorParameters => "respectRequiredConstructorParameters",
         ContractOptionKind.PreferredObjectCreationHandling => "preferredObjectCreationHandling",
+        ContractOptionKind.AllowDuplicateProperties => "allowDuplicateProperties",
+        ContractOptionKind.AllowOutOfOrderMetadataProperties => "allowOutOfOrderMetadataProperties",
+        ContractOptionKind.IgnoreNullValues => "ignoreNullValues",
+        ContractOptionKind.IncludeFields => "includeFields",
+        ContractOptionKind.UnknownTypeHandling => "unknownTypeHandling",
+    };
+
+    /// <summary>The public <see cref="JsonSerializerOptions"/> property represented by an option family.</summary>
+    public static string PropertyName(ContractOptionKind kind) => kind switch
+    {
+        ContractOptionKind.NumberHandling => nameof(JsonSerializerOptions.NumberHandling),
+        ContractOptionKind.ReferenceHandler => nameof(JsonSerializerOptions.ReferenceHandler),
+        ContractOptionKind.DefaultIgnoreCondition => nameof(JsonSerializerOptions.DefaultIgnoreCondition),
+        ContractOptionKind.UnmappedMemberHandling => nameof(JsonSerializerOptions.UnmappedMemberHandling),
+        ContractOptionKind.PropertyNameCaseInsensitive => nameof(JsonSerializerOptions.PropertyNameCaseInsensitive),
+        ContractOptionKind.ReadCommentHandling => nameof(JsonSerializerOptions.ReadCommentHandling),
+        ContractOptionKind.AllowTrailingCommas => nameof(JsonSerializerOptions.AllowTrailingCommas),
+        ContractOptionKind.MaxDepth => nameof(JsonSerializerOptions.MaxDepth),
+        ContractOptionKind.DictionaryKeyPolicy => nameof(JsonSerializerOptions.DictionaryKeyPolicy),
+        ContractOptionKind.IgnoreReadOnlyProperties => nameof(JsonSerializerOptions.IgnoreReadOnlyProperties),
+        ContractOptionKind.IgnoreReadOnlyFields => nameof(JsonSerializerOptions.IgnoreReadOnlyFields),
+        ContractOptionKind.PropertyNamingPolicy => nameof(JsonSerializerOptions.PropertyNamingPolicy),
+        ContractOptionKind.RespectNullableAnnotations => nameof(JsonSerializerOptions.RespectNullableAnnotations),
+        ContractOptionKind.RespectRequiredConstructorParameters => nameof(JsonSerializerOptions.RespectRequiredConstructorParameters),
+        ContractOptionKind.PreferredObjectCreationHandling => nameof(JsonSerializerOptions.PreferredObjectCreationHandling),
+        ContractOptionKind.AllowDuplicateProperties => nameof(JsonSerializerOptions.AllowDuplicateProperties),
+        ContractOptionKind.AllowOutOfOrderMetadataProperties => nameof(JsonSerializerOptions.AllowOutOfOrderMetadataProperties),
+        ContractOptionKind.IgnoreNullValues => nameof(JsonSerializerOptions.IgnoreNullValues),
+        ContractOptionKind.IncludeFields => nameof(JsonSerializerOptions.IncludeFields),
+        ContractOptionKind.UnknownTypeHandling => nameof(JsonSerializerOptions.UnknownTypeHandling),
     };
 
     /// <summary>The recorded value of one option family.</summary>
@@ -138,6 +185,11 @@ internal static class SerializerOptionFacts
             ContractOptionKind.RespectRequiredConstructorParameters =>
                 Boolean(options.RespectRequiredConstructorParameters),
             ContractOptionKind.PreferredObjectCreationHandling => options.PreferredObjectCreationHandling.ToString(),
+            ContractOptionKind.AllowDuplicateProperties => Boolean(options.AllowDuplicateProperties),
+            ContractOptionKind.AllowOutOfOrderMetadataProperties => Boolean(options.AllowOutOfOrderMetadataProperties),
+            ContractOptionKind.IgnoreNullValues => Boolean(options.IgnoreNullValues),
+            ContractOptionKind.IncludeFields => Boolean(options.IncludeFields),
+            ContractOptionKind.UnknownTypeHandling => options.UnknownTypeHandling.ToString(),
         };
     }
 
@@ -161,3 +213,5 @@ internal static class SerializerOptionFacts
 
     private static string Boolean(bool value) => value ? "true" : "false";
 }
+
+#pragma warning restore SYSLIB0020

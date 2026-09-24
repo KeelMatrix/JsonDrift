@@ -15,6 +15,9 @@ internal static class DocumentationTables
     /// <summary>The heading that starts the runtime System.Text.Json declaration coverage table.</summary>
     public const string AttributeCoverageHeading = "### Runtime System.Text.Json declaration coverage";
 
+    /// <summary>The heading that starts the runtime serializer-option disposition table.</summary>
+    public const string SerializerOptionCoverageHeading = "### Runtime JsonSerializerOptions declaration coverage";
+
     /// <summary>The heading that starts the recorded-fact comparison rule table.</summary>
     public const string FactRuleHeading = "### Recorded-fact comparison rule table";
 

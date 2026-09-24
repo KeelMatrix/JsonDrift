@@ -25,7 +25,7 @@ public sealed partial class JsonDriftFoundationTests
 
         Assert.True(contract.IsSupported);
         Assert.Null(contract.UnsupportedReason);
-        Assert.Equal(5, contract.FormatVersion);
+        Assert.Equal(6, contract.FormatVersion);
         Assert.Contains("SimpleEnvelope", contract.RootTypeName, StringComparison.Ordinal);
         Assert.Contains("\n", contract.CanonicalJson, StringComparison.Ordinal);
     }
@@ -37,6 +37,42 @@ public sealed partial class JsonDriftFoundationTests
 
         Assert.True(contract.IsSupported);
         Assert.Contains("formatVersion", contract.CanonicalJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IgnoreNullValuesChangesReflectionWireAndFailsComparison()
+    {
+        JsonSerializerOptions earlierOptions = ReflectionOptions();
+        JsonSerializerOptions laterOptions = ReflectionOptions();
+#pragma warning disable SYSLIB0020
+        laterOptions.IgnoreNullValues = true;
+#pragma warning restore SYSLIB0020
+        var value = new IgnoreNullPayload { Id = 1, Note = null };
+        string earlierDocument = JsonSerializer.Serialize(value, earlierOptions);
+        string laterDocument = JsonSerializer.Serialize(value, laterOptions);
+        IgnoreNullPayload rebound = JsonSerializer.Deserialize<IgnoreNullPayload>(earlierDocument, laterOptions)
+            ?? throw new InvalidOperationException("the earlier null document did not deserialize");
+        string reboundDocument = JsonSerializer.Serialize(rebound, laterOptions);
+
+        using TemporaryDirectory directory = new();
+        string baselinePath = Path.Combine(directory.Path, "ignore-null-values.json");
+        JsonTypeInfo earlierTypeInfo = earlierOptions.GetTypeInfo(typeof(IgnoreNullPayload));
+        JsonTypeInfo laterTypeInfo = laterOptions.GetTypeInfo(typeof(IgnoreNullPayload));
+        JsonContract extracted = JsonDrift.Extract(earlierTypeInfo);
+        JsonBaseline.Create(earlierTypeInfo, baselinePath, overwrite: false);
+        JsonContract readBaseline = JsonBaseline.Read(baselinePath);
+        JsonDriftReport report = JsonDrift.Compare(laterTypeInfo, readBaseline, JsonCompatibility.ReaderBackward);
+
+        Assert.Equal("{\"Id\":1,\"Note\":null}", earlierDocument);
+        Assert.Equal("{\"Id\":1}", laterDocument);
+        Assert.NotEqual(earlierDocument, laterDocument);
+        Assert.NotEqual(earlierDocument, reboundDocument);
+        Assert.Equal(extracted.CanonicalJson, readBaseline.CanonicalJson);
+        Assert.NotEqual(JsonDriftClassification.Compatible, report.Outcome);
+        Assert.Contains(report.Changes, change =>
+            change.Path == "options.ignoreNullValues" &&
+            change.Classification != JsonDriftClassification.Compatible);
+        Assert.Throws<JsonDriftCompatibilityException>(() => report.AssertCompatible());
     }
 
     [Fact]
@@ -375,7 +411,7 @@ public sealed partial class JsonDriftFoundationTests
         Assert.True(report.IsCompatible);
         Assert.Empty(report.Changes);
 
-        File.WriteAllText(path, "{\"formatVersion\":6}\n", new UTF8Encoding(false));
+        File.WriteAllText(path, "{\"formatVersion\":7}\n", new UTF8Encoding(false));
         InvalidDataException error = Assert.Throws<InvalidDataException>(() =>
             JsonDrift.Compare<SimpleEnvelope>(ReflectionOptions(), path, JsonCompatibility.ReaderBackward));
         Assert.Contains("newer than supported", error.Message, StringComparison.Ordinal);
@@ -394,7 +430,7 @@ public sealed partial class JsonDriftFoundationTests
         AssertReadFailure(directory, "malformed.json", "not-json\n", "Baseline is malformed JSON.");
         AssertReadFailure(directory, "foreign.json", "{\"name\":\"other\"}\n", "Baseline is not a JsonDrift canonical contract: missing formatVersion.");
         AssertReadFailure(directory, "old.json", "{\"formatVersion\":0}\n", "Baseline format version 0 is not supported.");
-        AssertReadFailure(directory, "future.json", "{\"formatVersion\":6}\n", "Baseline format version 6 is newer than supported version 5.");
+        AssertReadFailure(directory, "future.json", "{\"formatVersion\":7}\n", "Baseline format version 7 is newer than supported version 6.");
 
         string deep = new string('[', 12) + new string(']', 12) + "\n";
         string depthPath = Path.Combine(directory.Path, "depth.json");
@@ -433,7 +469,7 @@ public sealed partial class JsonDriftFoundationTests
         AssertReadFailure(
             directory,
             "duplicate-member.json",
-            canonical.Replace("  \"formatVersion\": 5,\n", "  \"formatVersion\": 5,\n  \"formatVersion\": 5,\n", StringComparison.Ordinal),
+            canonical.Replace("  \"formatVersion\": 6,\n", "  \"formatVersion\": 6,\n  \"formatVersion\": 6,\n", StringComparison.Ordinal),
             "Baseline contains duplicate JSON members.");
 
         AssertReadFailure(
@@ -681,6 +717,13 @@ public sealed partial class JsonDriftFoundationTests
     }
 
     private sealed class SimpleEnvelope
+    {
+        public int Id { get; set; }
+
+        public string? Note { get; set; }
+    }
+
+    private sealed class IgnoreNullPayload
     {
         public int Id { get; set; }
 

@@ -5,6 +5,8 @@ using System.Text.Json.Serialization.Metadata;
 using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 
+#pragma warning disable SYSLIB0020
+
 namespace KeelMatrix.JsonDrift.RuleMatrix.Rules;
 
 /// <summary>
@@ -32,6 +34,24 @@ internal static class OptionsRules
 
     private static readonly OptionFamily[] Families =
     {
+        new(
+            ContractOptionKind.AllowDuplicateProperties,
+            new[]
+            {
+                new OptionChange(
+                    ContractOptionKind.AllowDuplicateProperties,
+                    typeof(NoteV1),
+                    static options => options.AllowDuplicateProperties = false),
+            }),
+        new(
+            ContractOptionKind.AllowOutOfOrderMetadataProperties,
+            new[]
+            {
+                new OptionChange(
+                    ContractOptionKind.AllowOutOfOrderMetadataProperties,
+                    typeof(NoteV1),
+                    static options => options.AllowOutOfOrderMetadataProperties = true),
+            }),
         new(
             ContractOptionKind.NumberHandling,
             new[]
@@ -171,6 +191,33 @@ internal static class OptionsRules
                     typeof(NoteV1),
                     static options => options.PreferredObjectCreationHandling = JsonObjectCreationHandling.Populate),
             }),
+        new(
+            ContractOptionKind.IgnoreNullValues,
+            new[]
+            {
+                new OptionChange(
+                    ContractOptionKind.IgnoreNullValues,
+                    typeof(NoteV1),
+                    static options => options.IgnoreNullValues = true),
+            }),
+        new(
+            ContractOptionKind.IncludeFields,
+            new[]
+            {
+                new OptionChange(
+                    ContractOptionKind.IncludeFields,
+                    typeof(NoteV1),
+                    static options => options.IncludeFields = true),
+            }),
+        new(
+            ContractOptionKind.UnknownTypeHandling,
+            new[]
+            {
+                new OptionChange(
+                    ContractOptionKind.UnknownTypeHandling,
+                    typeof(NoteV1),
+                    static options => options.UnknownTypeHandling = JsonUnknownTypeHandling.JsonNode),
+            }),
     };
 
     public static IEnumerable<CheckOutcome> Run()
@@ -180,7 +227,47 @@ internal static class OptionsRules
             yield return Adversarial(family);
         }
 
+        yield return IgnoreNullValuesWireBehavior();
         yield return OptionsRecordedInDocument();
+    }
+
+    private static CheckOutcome IgnoreNullValuesWireBehavior()
+    {
+        JsonSerializerOptions earlierOptions = JsonContractOptions.Reflection();
+        JsonSerializerOptions laterOptions = JsonContractOptions.Reflection();
+#pragma warning disable SYSLIB0020
+        laterOptions.IgnoreNullValues = true;
+#pragma warning restore SYSLIB0020
+        var value = new NoteV1 { Id = 1, Note = null };
+        string earlierDocument = JsonSerializer.Serialize(value, earlierOptions);
+        string laterDocument = JsonSerializer.Serialize(value, laterOptions);
+        NoteV1? rebound = JsonSerializer.Deserialize<NoteV1>(earlierDocument, laterOptions);
+        string reboundDocument = JsonSerializer.Serialize(rebound, laterOptions);
+        JsonContract baseline = JsonDrift.Extract<NoteV1>(earlierOptions);
+        JsonDriftReport report = JsonDrift.Compare(
+            laterOptions.GetTypeInfo(typeof(NoteV1)),
+            baseline,
+            JsonCompatibility.ReaderBackward);
+        bool assertionFailed = false;
+
+        try
+        {
+            report.AssertCompatible();
+        }
+        catch (JsonDriftCompatibilityException)
+        {
+            assertionFailed = true;
+        }
+
+        return Check.Assert(
+            "R09.ignore.option-ignore-null-values",
+            "Serializer options",
+            "IgnoreNullValues changes the reflection/options wire behavior for an earlier explicit null",
+            "wire=Different, report=not Compatible, assertion=throws",
+            $"wire={(earlierDocument == laterDocument ? "Same" : "Different")}, report={report.Outcome}, assertion={(assertionFailed ? "throws" : "accepted")}",
+            $"earlier={earlierDocument}; later={laterDocument}; rebound={reboundDocument}; changes={report.Changes.Count}",
+            earlierDocument != laterDocument && rebound is not null && reboundDocument != earlierDocument &&
+            report.Outcome != JsonDriftClassification.Compatible && assertionFailed);
     }
 
     /// <summary>
@@ -333,3 +420,5 @@ internal static class OptionsRules
         return builder.ToString();
     }
 }
+
+#pragma warning restore SYSLIB0020

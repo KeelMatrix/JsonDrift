@@ -21,9 +21,13 @@ All notable changes to this project are documented in this file. The format is b
   presence constraints and the earlier extension-data key space are accounted for. Arbitrary unallowlisted
   serialization attributes or values, including unmeasured renames, are unsupported.
 - Rule-matrix coverage through the shipping comparison and assertion types.
-- Canonical baseline format 5 records complete nested object, collection-element, and dictionary key/value
+- Canonical baseline format 6 records complete nested object, collection-element, and dictionary key/value
   contract graphs, including concrete object and dictionary construction capability and whether a polymorphic base requires a type
   discriminator for reader materialization, with bounded references for recursive types.
+- Canonical baseline format 6 records the reviewed serializer-option surface. Validation reflects every public
+  `JsonSerializerOptions` property from the pinned `System.Text.Json` assembly, projects resolver and converter
+  properties into effective facts, documents non-contract formatting/buffering settings, and fails closed on
+  unmeasured non-default settings, including `IgnoreNullValues`.
 - Root scalar token changes, nested contract changes, and evidenced numeric range, signedness, fractional, and
   precision-loss transitions are classified fail-closed by the shipping comparison; unclassified scalar and
   numeric transitions are unsupported.

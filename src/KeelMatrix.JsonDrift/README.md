@@ -177,7 +177,7 @@ is supported. A private-constructor-only class or an ambiguous constructor set r
 `JsonBaseline.Update(contract, path, overwrite: true)` explicitly; comparison never rewrites a baseline.
 Reading never rewrites a baseline.
 
-Canonical baseline documents use `formatVersion: 5`. The format records complete nested object, collection
+Canonical baseline documents use `formatVersion: 6`. The format records complete nested object, collection
 element, and dictionary key/value contract nodes plus object and dictionary construction capability, while repeated types
 use validated bounded references so recursive contracts terminate. Polymorphic records include whether the
 declared base requires a discriminator for reader materialization. Nullable value slots, member materialization
@@ -190,6 +190,14 @@ when key and value contracts match. Scalar nodes record their JSON token kind. M
 future,
 oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated,
 stable in ordering, and contain no timestamps or host paths.
+
+The validation gate inventories all 29 public `JsonSerializerOptions` properties from the loaded pinned
+`System.Text.Json` assembly. Contract-bearing options are recorded in the canonical options object, resolver
+and converter properties are projected into effective metadata facts, formatting/buffering/mutability settings
+are explicitly outside the `ReaderBackward` contract, and unmeasured non-default settings fail closed. The
+inventory includes `AllowDuplicateProperties`, `AllowOutOfOrderMetadataProperties`, `IgnoreNullValues`,
+`IncludeFields`, and `UnknownTypeHandling`; the obsolete but functional `IgnoreNullValues` path has a public
+reflection/options regression and package-consumer smoke coverage.
 
 Unsupported metadata is deny-by-default and includes a diagnostic naming the offending declaration or feature where available. Custom converters are not executed to reverse-engineer behavior.
 

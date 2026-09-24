@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using KeelMatrix.JsonDrift.RuleMatrix.Contracts;
 using KeelMatrix.JsonDrift.RuleMatrix.Matrix;
 
 namespace KeelMatrix.JsonDrift.RuleMatrix.Rules;
@@ -54,6 +55,7 @@ internal static class InventoryRules
         yield return OptionAllowlistCheck(lines);
         yield return AttributeAllowlistCheck(lines);
         yield return AttributeDeclarationCoverageCheck(lines);
+        yield return SerializerOptionDeclarationCoverageCheck(lines);
         yield return ConverterConfigurationAllowlistCheck(lines);
     }
 
@@ -294,6 +296,104 @@ internal static class InventoryRules
             $"codeNotDocumented=[{string.Join(", ", codeNotDocumented)}]; documentedNotInCode=[{string.Join(", ", documentedNotInCode)}]; " +
             $"allowlistedButNotAccepted=[{string.Join(", ", allowlistedButNotAccepted)}]; " +
             $"acceptedButNotAllowlisted=[{string.Join(", ", acceptedButNotAllowlisted)}]",
+            passed);
+    }
+
+    /// <summary>
+    /// Binds the serializer-option dispositions to every public property in the loaded System.Text.Json
+    /// assembly. The runtime reflection surface is the outer inventory, so a new framework property cannot
+    /// pass merely because the recorded option enum was not updated. The mutation control proves an
+    /// unclassified property fails with a named diagnostic without changing a canonical contract.
+    /// </summary>
+    private static CheckOutcome SerializerOptionDeclarationCoverageCheck(string[] lines)
+    {
+        var documented = DocumentationTables.ReadTable(lines, DocumentationTables.SerializerOptionCoverageHeading)
+            .Where(static cells => cells.Length >= 3 && !string.Equals(Clean(cells[0]), "Property", StringComparison.Ordinal))
+            .Select(static cells => new SerializerOptionDeclaration(Clean(cells[0]), Clean(cells[1]), Clean(cells[2])))
+            .ToArray();
+        SerializerOptionDeclaration[] declared = SerializerOptionInventory.Declarations.ToArray();
+        string[] runtime = SerializerOptionInventory.RuntimePropertyNames.ToArray();
+        SerializerOptionInventoryValidation validation = SerializerOptionInventory.Validate();
+        string[] documentedNames = documented.Select(static row => row.PropertyName).ToArray();
+        string[] duplicateDocumentation = documented
+            .GroupBy(static row => row.PropertyName, StringComparer.Ordinal)
+            .Where(static group => group.Count() != 1)
+            .Select(static group => group.Key)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] runtimeWithoutDocumentation = runtime
+            .Where(name => documentedNames.Count(candidate => string.Equals(candidate, name, StringComparison.Ordinal)) != 1)
+            .ToArray();
+        string[] documentationOutsideRuntime = documentedNames
+            .Where(name => !runtime.Contains(name, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] documentationMismatches = declared
+            .Select(declaration =>
+            {
+                SerializerOptionDeclaration? row = documented.FirstOrDefault(candidate =>
+                    string.Equals(candidate.PropertyName, declaration.PropertyName, StringComparison.Ordinal));
+                return row is not null &&
+                    (row.Disposition != declaration.Disposition || row.Evidence != declaration.Evidence)
+                    ? declaration.PropertyName
+                    : null;
+            })
+            .Where(static name => name is not null)
+            .Select(static name => name!)
+            .ToArray();
+        string[] missingDocumentationRows = declared
+            .Where(declaration => !documentedNames.Contains(declaration.PropertyName, StringComparer.Ordinal))
+            .Select(static declaration => declaration.PropertyName)
+            .ToArray();
+
+        string canonicalBefore = ContractCanonicalizer.Canonicalize(
+            JsonContractOptions.Reflection().GetTypeInfo(typeof(NoteV1)));
+        string mutationProperty = "SyntheticUnclassifiedSerializerOption";
+        SerializerOptionInventoryValidation mutation = SerializerOptionInventory.Validate(
+            runtime.Append(mutationProperty),
+            declared.Append(new SerializerOptionDeclaration(mutationProperty, "Unclassified", "mutation control")));
+        string canonicalAfter = ContractCanonicalizer.Canonicalize(
+            JsonContractOptions.Reflection().GetTypeInfo(typeof(NoteV1)));
+        bool mutationRejected = !mutation.Passed &&
+            mutation.UnknownDispositions.Contains($"{mutationProperty}=Unclassified", StringComparer.Ordinal);
+        bool canonicalUnchanged = string.Equals(canonicalBefore, canonicalAfter, StringComparison.Ordinal);
+
+        bool passed = validation.Passed &&
+            duplicateDocumentation.Length == 0 &&
+            runtimeWithoutDocumentation.Length == 0 &&
+            documentationOutsideRuntime.Length == 0 &&
+            documentationMismatches.Length == 0 &&
+            missingDocumentationRows.Length == 0 &&
+            mutationRejected &&
+            canonicalUnchanged;
+        string dispositionTable = string.Join(
+            ", ",
+            declared.OrderBy(static declaration => declaration.PropertyName, StringComparer.Ordinal)
+                .Select(static declaration => $"{declaration.PropertyName}={declaration.Disposition}"));
+
+        return Check.Assert(
+            "D06.allowlist.serializer-option-declaration-coverage",
+            "Runtime serializer-option declaration coverage",
+            "every public JsonSerializerOptions property in the loaded System.Text.Json assembly has exactly one reviewed disposition, and an unclassified mutation fails closed",
+            "runtime=covered=documented, dispositions=exclusive, mutation=reject, canonical=unchanged",
+            passed
+                ? "runtime=covered=documented, dispositions=exclusive, mutation=reject, canonical=unchanged"
+                : "serializer-option declaration coverage mismatch",
+            $"runtimeWithoutDisposition=[{string.Join(", ", validation.RuntimeWithoutDisposition)}]; " +
+            $"dispositionOutsideRuntime=[{string.Join(", ", validation.DispositionOutsideRuntime)}]; " +
+            $"duplicateDeclarations=[{string.Join(", ", validation.DuplicateDeclarations)}]; " +
+            $"unknownDispositions=[{string.Join(", ", validation.UnknownDispositions)}]; " +
+            $"missingEvidence=[{string.Join(", ", validation.MissingEvidence)}]; " +
+            $"recordedWithoutFact=[{string.Join(", ", validation.RecordedWithoutFact)}]; " +
+            $"factsWithoutRecordedDisposition=[{string.Join(", ", validation.FactsWithoutRecordedDisposition)}]; " +
+            $"runtimeWithoutDocumentation=[{string.Join(", ", runtimeWithoutDocumentation)}]; " +
+            $"documentationOutsideRuntime=[{string.Join(", ", documentationOutsideRuntime)}]; " +
+            $"documentationMismatches=[{string.Join(", ", documentationMismatches)}]; " +
+            $"missingDocumentationRows=[{string.Join(", ", missingDocumentationRows)}]; " +
+            $"mutationUnknownDispositions=[{string.Join(", ", mutation.UnknownDispositions)}]; " +
+            $"mutationRejected={mutationRejected}; canonicalUnchanged={canonicalUnchanged}; " +
+            $"assembly={typeof(JsonSerializer).Assembly.FullName}; dispositions=[{dispositionTable}]",
             passed);
     }
 

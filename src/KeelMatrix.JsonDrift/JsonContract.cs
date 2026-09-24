@@ -11,7 +11,7 @@ namespace KeelMatrix.JsonDrift;
 /// This model describes structural JSON wire compatibility only. It is not a source/API compatibility model,
 /// and it cannot prove business or semantic compatibility. A contract can be explicitly unsupported when the
 /// serializer metadata contains a feature that JsonDrift has not measured; unsupported contracts must never be
-/// treated as compatible. Format version 5 records complete nested object, collection-element, and dictionary
+/// treated as compatible. Format version 6 records complete nested object, collection-element, and dictionary
 /// key/value metadata, including dictionary construction capability, with bounded references for repeated types,
 /// records polymorphic reader materialization constraints, and records the JSON token kind of scalar nodes for
 /// fail-closed comparison. ReaderBackward comparison retains
@@ -68,7 +68,7 @@ public sealed class JsonContract
         this.usesSourceGeneratedMetadata = usesSourceGeneratedMetadata;
     }
 
-    /// <summary>Gets the canonical baseline format version of this contract; the current version is 5.</summary>
+    /// <summary>Gets the canonical baseline format version of this contract; the current version is 6.</summary>
     public int FormatVersion { get; }
 
     /// <summary>Gets the stable type name of the selected root contract.</summary>

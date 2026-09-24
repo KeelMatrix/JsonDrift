@@ -147,7 +147,14 @@ The measured classification rules and their evidence remain in
 - Unsupported or unclassified metadata is deny-by-default and is never represented as compatible.
 - Extraction accepts `JsonTypeInfo`, reflection-backed `JsonSerializerOptions`, and source-generated
   type information. Application converters are not executed to reverse-engineer behavior.
-- Baselines use canonical JSON format version `5`: UTF-8 without BOM, LF line endings, stable ordering,
+- The validation gate enumerates all 29 public `JsonSerializerOptions` properties from the loaded pinned
+  `System.Text.Json` assembly and requires one reviewed disposition for each. Contract-bearing settings are
+  recorded in the canonical options object; resolver and converter properties are projected into their
+  effective metadata facts; formatting, buffering, and mutability properties are explicitly outside the
+  `ReaderBackward` contract; and unmeasured non-default settings fail closed. This includes
+  `AllowDuplicateProperties`, `AllowOutOfOrderMetadataProperties`, `IgnoreNullValues`, `IncludeFields`, and
+  `UnknownTypeHandling`.
+- Baselines use canonical JSON format version `6`: UTF-8 without BOM, LF line endings, stable ordering,
   no timestamps or host paths, bounded parsing, and explicit create/update/read operations.
 - Canonical nodes retain complete nested object, collection-element, and dictionary key/value contracts plus
   dictionary construction capability; repeated types use validated bounded references. Nullable value slots

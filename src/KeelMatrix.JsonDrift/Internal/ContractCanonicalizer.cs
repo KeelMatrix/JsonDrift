@@ -15,7 +15,7 @@ namespace KeelMatrix.JsonDrift.Internal;
 internal static class ContractCanonicalizer
 {
     /// <summary>The canonical baseline document format version.</summary>
-    public const int FormatVersion = 5;
+    public const int FormatVersion = 6;
 
     private static readonly JsonSerializerOptions WriterOptions = new()
     {

@@ -227,7 +227,7 @@ Allowlisted framework converters: System.Text.Json.Serialization.JsonStringEnumC
 
 Allowlisted metadata resolvers: System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver, System.Text.Json.Serialization.JsonSerializerContext
 
-Allowlisted serializer option values: numberHandling=Strict, referenceHandler=Default, defaultIgnoreCondition=Never, defaultIgnoreCondition=WhenWritingNull, unmappedMemberHandling=Skip, propertyNameCaseInsensitive=false, readCommentHandling=Disallow, allowTrailingCommas=false, maxDepth=0, dictionaryKeyPolicy=Default, ignoreReadOnlyProperties=false, ignoreReadOnlyFields=false, propertyNamingPolicy=Default, respectNullableAnnotations=false, respectRequiredConstructorParameters=false, preferredObjectCreationHandling=Replace
+Allowlisted serializer option values: numberHandling=Strict, referenceHandler=Default, defaultIgnoreCondition=Never, defaultIgnoreCondition=WhenWritingNull, unmappedMemberHandling=Skip, propertyNameCaseInsensitive=false, readCommentHandling=Disallow, allowTrailingCommas=false, maxDepth=0, dictionaryKeyPolicy=Default, ignoreReadOnlyProperties=false, ignoreReadOnlyFields=false, propertyNamingPolicy=Default, respectNullableAnnotations=false, respectRequiredConstructorParameters=false, preferredObjectCreationHandling=Replace, allowDuplicateProperties=true, allowOutOfOrderMetadataProperties=false, ignoreNullValues=false, includeFields=false, unknownTypeHandling=JsonElement
 
 Allowlisted declared JSON attributes: System.Text.Json.Serialization.JsonConstructorAttribute | System.Text.Json.Serialization.JsonConverterAttribute($0=System.Text.Json.Serialization.JsonStringEnumConverter) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=<derived-type>,$1=canine) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=<derived-type>,$1=cat) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=<derived-type>,$1=dog) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=<derived-type>,$1=enum) | System.Text.Json.Serialization.JsonDerivedTypeAttribute($0=<derived-type>,$1=shift) | System.Text.Json.Serialization.JsonExtensionDataAttribute | System.Text.Json.Serialization.JsonIgnoreAttribute | System.Text.Json.Serialization.JsonIgnoreAttribute(Condition=Never) | System.Text.Json.Serialization.JsonNumberHandlingAttribute($0=Strict) | System.Text.Json.Serialization.JsonPolymorphicAttribute(TypeDiscriminatorPropertyName=$type) | System.Text.Json.Serialization.JsonPolymorphicAttribute(TypeDiscriminatorPropertyName=kind) | System.Text.Json.Serialization.JsonPropertyNameAttribute($0=accountId) | System.Text.Json.Serialization.JsonPropertyNameAttribute($0=account_id) | System.Text.Json.Serialization.JsonRequiredAttribute
 
@@ -439,16 +439,22 @@ pair of byte-identical documents (`D08.canonical-document.options-recorded`).
 The recorded families are `NumberHandling`, `ReferenceHandler`, `DefaultIgnoreCondition`,
 `UnmappedMemberHandling`, `PropertyNameCaseInsensitive`, `ReadCommentHandling`, `AllowTrailingCommas`,
 `MaxDepth`, `DictionaryKeyPolicy`, `IgnoreReadOnlyProperties`, `IgnoreReadOnlyFields`, `PropertyNamingPolicy`,
-`RespectNullableAnnotations`, `RespectRequiredConstructorParameters`, and `PreferredObjectCreationHandling`.
-The list is the one the traversal records, so a setting added to the recorded set has to be documented and
-attacked like every other one.
+`RespectNullableAnnotations`, `RespectRequiredConstructorParameters`, `PreferredObjectCreationHandling`,
+`AllowDuplicateProperties`, `AllowOutOfOrderMetadataProperties`, `IgnoreNullValues`, `IncludeFields`, and
+`UnknownTypeHandling`. The five newly inventoried contract-bearing settings are recorded in the canonical
+options object; their non-default values are explicitly unsupported until a measured ReaderBackward rule
+proves otherwise. The list is not the discovery boundary: the validation gate reflects every public
+`JsonSerializerOptions` property in the loaded `System.Text.Json` assembly and requires each one to have one
+reviewed disposition.
 
 A recorded value is accepted only when the option allowlist names it; every other value is reported through
 `unsupported.option-unlisted`. The allowlist is derived from the option profiles the committed checks are
 measured under rather than written out a second time, so it cannot drift from the checks, and the gate compares
 it with the documented list and with the values the executed checks were accepted under, in both directions
-(`D06.allowlist.option-values`). Every option family is exercised by an adversarial check that sets an unlisted
-value and requires the contract to fail closed (`A01.adversarial.options-*`).
+(`D06.allowlist.option-values`). Every recorded option family is exercised by an adversarial check that sets an
+unlisted value and requires the contract to fail closed (`A01.adversarial.options-*`). The separate
+`D06.allowlist.serializer-option-declaration-coverage` gate reports the full runtime property/disposition table,
+rejects a missing or duplicate declaration, and includes a throwaway unclassified-property mutation control.
 
 An option value that a committed check only probes as a reading behaviour - `NumberHandling =
 AllowReadingFromString`, `RespectNullableAnnotations = true`, `RespectRequiredConstructorParameters = true`, or
@@ -456,6 +462,53 @@ a naming policy applied while measuring a serialized-name change, for example - 
 classification, because no committed check classifies a contract under it. Such a contract is reported
 unsupported, which is the safe direction: the option allowlist never claims a value the matrix only measured
 through the behaviour of a probe, and every option family keeps a value the adversarial set can attack.
+
+### Runtime JsonSerializerOptions declaration coverage
+
+The runtime inventory is the public, parameterless instance-property surface of the exact loaded
+`System.Text.Json` assembly. Each property has exactly one disposition: `RecordedAndCompared` means its
+recorded value is part of the effective contract comparison; `ProjectedIntoEffectiveContract` means the
+property is represented by another recorded fact such as resolver or converter metadata;
+`NonContractBearing` means measured formatting, buffering, or mutability state is outside JsonDrift's
+`ReaderBackward` losslessness definition; and `UnsupportedWhenNonDefault` means the value is recorded but a
+non-default value is not allowlisted and therefore fails closed. The inventory is intentionally broader than
+`SerializerOptionFacts.All`, so a newly added framework property cannot pass by being absent from that enum.
+
+| Property | Disposition | Evidence |
+|---|---|---|
+| `AllowDuplicateProperties` | `UnsupportedWhenNonDefault` | Recorded as a serializer option; false is explicitly unsupported because duplicate-name reader behavior is not measured. |
+| `AllowOutOfOrderMetadataProperties` | `UnsupportedWhenNonDefault` | Recorded as a serializer option; true is explicitly unsupported because polymorphic metadata ordering is not measured. |
+| `AllowTrailingCommas` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted value fails closed. |
+| `Converters` | `ProjectedIntoEffectiveContract` | Registered converters are recorded by the options-converters discovery source and unrecognized converters fail closed. |
+| `DefaultBufferSize` | `NonContractBearing` | Only changes serializer buffering; it does not change JSON tokens, member shape, or ReaderBackward losslessness. |
+| `DefaultIgnoreCondition` | `RecordedAndCompared` | Recorded and compared; the matrix proves the measured null-writing transition. |
+| `DictionaryKeyPolicy` | `RecordedAndCompared` | Recorded and compared; the dictionary-key policy changes wire member names and unallowlisted values fail closed. |
+| `Encoder` | `NonContractBearing` | Only changes escaping of equivalent JSON string values; ReaderBackward compares parsed wire values, not byte escaping. |
+| `IgnoreNullValues` | `UnsupportedWhenNonDefault` | Recorded as a serializer option; true is explicitly unsupported, with a public regression proving null-valued member writing and reading differ. |
+| `IgnoreReadOnlyFields` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted value fails closed. |
+| `IgnoreReadOnlyProperties` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted value fails closed. |
+| `IncludeFields` | `UnsupportedWhenNonDefault` | Recorded as a serializer option; true is explicitly unsupported because enabling fields changes the effective member surface. |
+| `IndentCharacter` | `NonContractBearing` | Only changes indentation formatting; it does not change JSON tokens or ReaderBackward losslessness. |
+| `IndentSize` | `NonContractBearing` | Only changes indentation formatting; it does not change JSON tokens or ReaderBackward losslessness. |
+| `IsReadOnly` | `NonContractBearing` | Reports whether options can still be mutated; the state itself does not change the effective JSON contract. |
+| `MaxDepth` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted depth fails closed. |
+| `NewLine` | `NonContractBearing` | Only changes line-ending formatting; it does not change JSON tokens or ReaderBackward losslessness. |
+| `NumberHandling` | `RecordedAndCompared` | Recorded and compared; the options matrix proves unallowlisted token handling fails closed. |
+| `PreferredObjectCreationHandling` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted materialization value fails closed. |
+| `PropertyNameCaseInsensitive` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted reader matching value fails closed. |
+| `PropertyNamingPolicy` | `RecordedAndCompared` | Recorded and compared; the matrix measures serialized-name changes under the naming policy. |
+| `ReadCommentHandling` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted comment value fails closed. |
+| `ReferenceHandler` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted reference handler fails closed. |
+| `RespectNullableAnnotations` | `RecordedAndCompared` | Recorded and compared; the matrix measures the enforced nullable-reader transition. |
+| `RespectRequiredConstructorParameters` | `RecordedAndCompared` | Recorded and compared; the matrix measures the enforced constructor-presence transition. |
+| `TypeInfoResolver` | `ProjectedIntoEffectiveContract` | The resolver identity, chain length, and modifiers are recorded as resolver facts; unrecognized changes fail closed. |
+| `TypeInfoResolverChain` | `ProjectedIntoEffectiveContract` | The resolver chain is recorded as resolver facts; multiple or unrecognized resolvers fail closed. |
+| `UnknownTypeHandling` | `UnsupportedWhenNonDefault` | Recorded as a serializer option; JsonNode is explicitly unsupported because its object materialization is not measured. |
+| `UnmappedMemberHandling` | `RecordedAndCompared` | Recorded and compared; the options matrix proves an unallowlisted reader behavior fails closed. |
+| `WriteIndented` | `NonContractBearing` | Only changes whitespace formatting; it does not change JSON tokens or ReaderBackward losslessness. |
+
+The pinned 10.0.12 assembly reports assembly version `10.0.0.0`; the package and matrix use the pinned
+10.0.12 dependency. The matrix prints the loaded assembly identity and all 29 dispositions on every run.
 
 ### Declared serialization attributes
 
@@ -631,7 +684,7 @@ resolved further by the contract model.
 
 ## Canonical contract document
 
-The canonical document describes the effective contract in a stable form: format version `5` for the current
+The canonical document describes the effective contract in a stable form: format version `6` for the current
 schema, members sorted by name, a fixed key order, complete nested object/element/key/value nodes, and
 references for repeated types so recursive contracts terminate within the existing traversal budget. Dictionary
 nodes also record whether their concrete materializer is constructible under the measured rule. Object nodes

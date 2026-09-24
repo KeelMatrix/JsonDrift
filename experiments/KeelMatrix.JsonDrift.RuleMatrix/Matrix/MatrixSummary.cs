@@ -11,13 +11,13 @@ internal static class MatrixSummary
     public const int SummaryCheckCount = 13;
 
     /// <summary>Executed checks in the matrix, asserted by <c>D04.matrix.check-count</c>.</summary>
-    public const int ExpectedCheckCount = 260;
+    public const int ExpectedCheckCount = 266;
 
     /// <summary>Measured changes compatible under both <c>ReaderBackward</c> and <c>WriterForward</c>.</summary>
     public const int ExpectedFullCompatibleCount = 7;
 
     /// <summary>Executed checks that report unsupported converter metadata.</summary>
-    public const int ExpectedUnsupportedCount = 71;
+    public const int ExpectedUnsupportedCount = 76;
 
     public static IEnumerable<CheckOutcome> Run(IReadOnlyList<CheckOutcome> checks)
     {
