@@ -147,7 +147,7 @@ The measured classification rules and their evidence remain in
 - Unsupported or unclassified metadata is deny-by-default and is never represented as compatible.
 - Extraction accepts `JsonTypeInfo`, reflection-backed `JsonSerializerOptions`, and source-generated
   type information. Application converters are not executed to reverse-engineer behavior.
-- The validation gate enumerates all 29 public `JsonSerializerOptions` properties from the loaded pinned
+- The validation gate enumerates all 30 public `JsonSerializerOptions` properties from the loaded pinned
   `System.Text.Json` assembly and requires one reviewed disposition for each. Contract-bearing settings are
   recorded in the canonical options object; resolver and converter properties are projected into their
   effective metadata facts; formatting, buffering, and mutability properties are explicitly outside the

@@ -58,7 +58,7 @@ Evidence:
   recorded under, so a change of an accepted option value is a document difference
   (`D08.canonical-document.options-recorded`), and it carries an aggregate support state as well as a root flag
   (`R15.canonical-document.aggregate-support-state`), so a report layer never infers safety from a root flag
-  while nested metadata is unsupported. The runtime serializer-option inventory reflects all 29 public
+  while nested metadata is unsupported. The runtime serializer-option inventory reflects all 30 public
   `JsonSerializerOptions` properties from the pinned assembly, requires one reviewed disposition for each,
   and fails its synthetic unclassified-property mutation control without changing the canonical tree. An
   executable adversarial set (`A01.adversarial.*`) keeps trying to

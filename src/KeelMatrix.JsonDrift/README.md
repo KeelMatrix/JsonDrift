@@ -191,7 +191,7 @@ future,
 oversized, and over-depth documents are rejected. Canonical bytes are UTF-8 without a BOM, LF-terminated,
 stable in ordering, and contain no timestamps or host paths.
 
-The validation gate inventories all 29 public `JsonSerializerOptions` properties from the loaded pinned
+The validation gate inventories all 30 public `JsonSerializerOptions` properties from the loaded pinned
 `System.Text.Json` assembly. Contract-bearing options are recorded in the canonical options object, resolver
 and converter properties are projected into effective metadata facts, formatting/buffering/mutability settings
 are explicitly outside the `ReaderBackward` contract, and unmeasured non-default settings fail closed. The

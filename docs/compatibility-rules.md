@@ -508,7 +508,7 @@ non-default value is not allowlisted and therefore fails closed. The inventory i
 | `WriteIndented` | `NonContractBearing` | Only changes whitespace formatting; it does not change JSON tokens or ReaderBackward losslessness. |
 
 The pinned 10.0.12 assembly reports assembly version `10.0.0.0`; the package and matrix use the pinned
-10.0.12 dependency. The matrix prints the loaded assembly identity and all 29 dispositions on every run.
+10.0.12 dependency. The matrix prints the loaded assembly identity and all 30 dispositions on every run.
 
 ### Declared serialization attributes
 
