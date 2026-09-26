@@ -821,12 +821,12 @@ Invoke-Check -Id 'telemetry-disabled' -Description 'repository validation teleme
 }
 
 Invoke-Check -Id 'release-workflow-contract' -Description 'tag-only release workflow contract' -Action {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-release-workflow.ps1')
+    & pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'test-release-workflow.ps1')
     if ($LASTEXITCODE -ne 0) { throw "release workflow contract exited with code $LASTEXITCODE" }
 }
 
 Invoke-Check -Id 'changelog-version-regressions' -Description 'finalized, unfinalized, and mismatch release-version regressions' -Action {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-changelog-contract.ps1')
+    & pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'test-changelog-contract.ps1')
     if ($LASTEXITCODE -ne 0) { throw "changelog contract regressions exited with code $LASTEXITCODE" }
 }
 
@@ -944,19 +944,19 @@ Invoke-Check -Id 'package-consumer' -Description 'isolated package-consumer smok
         throw "documented first-success consumer script not found: $firstSuccessScript"
     }
 
-    & pwsh -NoProfile -File $firstSuccessScript -PackagePath $script:productPackagePath
+    & pwsh -NoProfile -WindowStyle Hidden -File $firstSuccessScript -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "documented first-success consumer exited with code $LASTEXITCODE"
     }
 
-    & pwsh -NoProfile -File $consumerSmokeScript -PackagePath $script:productPackagePath
+    & pwsh -NoProfile -WindowStyle Hidden -File $consumerSmokeScript -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "consumer smoke exited with code $LASTEXITCODE"
     }
 }
 
 Invoke-Check -Id 'package-consumer-cache-regression' -Description 'poisoned inherited package-cache regression' -Action {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-consumer-smoke.ps1') -PackagePath $script:productPackagePath
+    & pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'test-consumer-smoke.ps1') -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) { throw "consumer cache regression exited with code $LASTEXITCODE" }
 }
 

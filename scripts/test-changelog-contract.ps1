@@ -56,7 +56,7 @@ function Invoke-ContractCase {
     }
 
     $commit = New-FixtureRepository -Changelog $Changelog
-    $output = @(& pwsh -NoProfile -File $validator -ExpectedVersion $ExpectedVersion -ExpectedCommit $commit -RepositoryRoot $fixtureRoot 2>&1)
+    $output = @(& pwsh -NoProfile -WindowStyle Hidden -File $validator -ExpectedVersion $ExpectedVersion -ExpectedCommit $commit -RepositoryRoot $fixtureRoot 2>&1)
     $passed = $LASTEXITCODE -eq 0
     if ($passed -ne $ShouldPass) {
         throw "changelog contract regression '$Name' produced exit $LASTEXITCODE; output: $($output -join [Environment]::NewLine)"
