@@ -5,6 +5,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 
 $validator = Join-Path $PSScriptRoot 'validate-release-version.ps1'
 $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "jsondrift-release-contract-$([Guid]::NewGuid().ToString('N'))"
@@ -56,7 +57,7 @@ function Invoke-ContractCase {
     }
 
     $commit = New-FixtureRepository -Changelog $Changelog
-    $output = @(& pwsh -NoProfile -WindowStyle Hidden -File $validator -ExpectedVersion $ExpectedVersion -ExpectedCommit $commit -RepositoryRoot $fixtureRoot 2>&1)
+    $output = @(Invoke-NestedPwsh -NoProfile -File $validator -ExpectedVersion $ExpectedVersion -ExpectedCommit $commit -RepositoryRoot $fixtureRoot 2>&1)
     $passed = $LASTEXITCODE -eq 0
     if ($passed -ne $ShouldPass) {
         throw "changelog contract regression '$Name' produced exit $LASTEXITCODE; output: $($output -join [Environment]::NewLine)"

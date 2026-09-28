@@ -5,6 +5,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 
 $resolvedPackage = (Resolve-Path -LiteralPath $PackagePath).Path
 $root = Join-Path ([IO.Path]::GetTempPath()) "jsondrift-consumer-cache-regression-$([Guid]::NewGuid().ToString('N'))"
@@ -26,7 +27,7 @@ try {
         [byte[]](0x70, 0x6f, 0x69, 0x73, 0x6f, 0x6e, 0x65, 0x64))
 
     $env:NUGET_PACKAGES = $poisonedCache
-    $output = @(& pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'consumer-smoke.ps1') -PackagePath $resolvedPackage 2>&1)
+    $output = @(Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'consumer-smoke.ps1') -PackagePath $resolvedPackage 2>&1)
     $exitCode = $LASTEXITCODE
     $output | ForEach-Object { Write-Host $_ }
     if ($exitCode -ne 0) {

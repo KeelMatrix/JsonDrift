@@ -16,6 +16,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
+$launchGuard = Join-Path $repoRoot 'build/Test-NestedPwshLaunch.ps1'
+& $launchGuard -SelfTest
+if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard self-test failed.' }
+& $launchGuard
+if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard failed.' }
 $solution = Join-Path $repoRoot 'KeelMatrix.JsonDrift.sln'
 $nugetConfig = Join-Path $repoRoot 'NuGet.config'
 $productProject = Join-Path $repoRoot 'src/KeelMatrix.JsonDrift/KeelMatrix.JsonDrift.csproj'
@@ -821,12 +827,12 @@ Invoke-Check -Id 'telemetry-disabled' -Description 'repository validation teleme
 }
 
 Invoke-Check -Id 'release-workflow-contract' -Description 'tag-only release workflow contract' -Action {
-    & pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'test-release-workflow.ps1')
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-release-workflow.ps1')
     if ($LASTEXITCODE -ne 0) { throw "release workflow contract exited with code $LASTEXITCODE" }
 }
 
 Invoke-Check -Id 'changelog-version-regressions' -Description 'finalized, unfinalized, and mismatch release-version regressions' -Action {
-    & pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'test-changelog-contract.ps1')
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-changelog-contract.ps1')
     if ($LASTEXITCODE -ne 0) { throw "changelog contract regressions exited with code $LASTEXITCODE" }
 }
 
@@ -944,19 +950,19 @@ Invoke-Check -Id 'package-consumer' -Description 'isolated package-consumer smok
         throw "documented first-success consumer script not found: $firstSuccessScript"
     }
 
-    & pwsh -NoProfile -WindowStyle Hidden -File $firstSuccessScript -PackagePath $script:productPackagePath
+    Invoke-NestedPwsh -NoProfile -File $firstSuccessScript -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "documented first-success consumer exited with code $LASTEXITCODE"
     }
 
-    & pwsh -NoProfile -WindowStyle Hidden -File $consumerSmokeScript -PackagePath $script:productPackagePath
+    Invoke-NestedPwsh -NoProfile -File $consumerSmokeScript -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "consumer smoke exited with code $LASTEXITCODE"
     }
 }
 
 Invoke-Check -Id 'package-consumer-cache-regression' -Description 'poisoned inherited package-cache regression' -Action {
-    & pwsh -NoProfile -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'test-consumer-smoke.ps1') -PackagePath $script:productPackagePath
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-consumer-smoke.ps1') -PackagePath $script:productPackagePath
     if ($LASTEXITCODE -ne 0) { throw "consumer cache regression exited with code $LASTEXITCODE" }
 }
 
