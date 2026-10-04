@@ -14,7 +14,7 @@ Create a `net8.0` console project and install it with:
 ```pwsh
 dotnet new console --framework net8.0 --name JsonDriftExample
 Set-Location JsonDriftExample
-dotnet add package KeelMatrix.JsonDrift --version 0.1.0
+dotnet add package KeelMatrix.JsonDrift --version 0.1.1
 ```
 
 ## Quick Start
@@ -208,11 +208,11 @@ collection elements, and dictionary values.
 
 ## Telemetry and privacy
 
-The comparison core is offline. A real comparison against an accepted baseline may make a best-effort request
-to `KeelMatrix.Telemetry`; baseline creation alone does not activate telemetry, and JsonDrift sends no
-product-specific comparison payload. Telemetry failure cannot change comparison or assertion results. The shared
-telemetry package owns its event fields, pseudonymous identifiers, delivery, retention, and opt-out precedence.
-The JsonDrift-specific boundary is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
+The comparison core is offline. After a real comparison against an accepted baseline, JsonDrift calls the shared
+`KeelMatrix.Telemetry` client for activation and heartbeat signals; baseline creation alone does not activate
+telemetry, and JsonDrift sends no product-specific comparison payload. The shared client owns opt-out handling,
+event cadence and deduplication, identity, delivery, and best-effort failure handling. The JsonDrift-specific
+boundary is in the [privacy policy](https://github.com/KeelMatrix/JsonDrift/blob/main/PRIVACY.md).
 
 ## Deeper documentation
 

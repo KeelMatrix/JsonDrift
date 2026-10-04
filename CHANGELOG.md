@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [Unreleased]
 
+### Changed
+
+- Delegate telemetry opt-out, event cadence and deduplication, delivery, and failure handling to the shared client while keeping the real-comparison eligibility gate.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added

@@ -26,7 +26,7 @@ dotnet test KeelMatrix.JsonDrift.sln -c Release --no-build
 pwsh scripts/validate.ps1
 $commit = (git rev-parse HEAD).Trim()
 pwsh scripts/test-changelog-contract.ps1
-pwsh scripts/validate-release-version.ps1 -ExpectedVersion 0.1.0 -ExpectedCommit $commit
+pwsh scripts/validate-release-version.ps1 -ExpectedVersion 0.1.1 -ExpectedCommit $commit
 ```
 
 ## Invariants

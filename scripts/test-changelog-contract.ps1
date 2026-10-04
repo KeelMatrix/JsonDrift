@@ -23,15 +23,16 @@ function Write-FixtureFile {
 }
 
 function New-FixtureRepository {
-    param([Parameter(Mandatory = $true)][string]$Changelog)
+    param(
+        [Parameter(Mandatory = $true)][string]$Changelog,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
 
     New-Item -ItemType Directory -Path (Join-Path $fixtureRoot 'src/KeelMatrix.JsonDrift') -Force | Out-Null
-    Write-FixtureFile (Join-Path $fixtureRoot 'Directory.Build.props') @'
-<Project><PropertyGroup><Version>0.1.0</Version></PropertyGroup></Project>
-'@
+    Write-FixtureFile (Join-Path $fixtureRoot 'Directory.Build.props') "<Project><PropertyGroup><Version>$Version</Version></PropertyGroup></Project>"
     Write-FixtureFile (Join-Path $fixtureRoot 'src/KeelMatrix.JsonDrift/KeelMatrix.JsonDrift.csproj') '<Project />'
-    Write-FixtureFile (Join-Path $fixtureRoot 'README.md') 'dotnet add package KeelMatrix.JsonDrift --version 0.1.0'
-    Write-FixtureFile (Join-Path $fixtureRoot 'src/KeelMatrix.JsonDrift/README.md') 'dotnet add package KeelMatrix.JsonDrift --version 0.1.0'
+    Write-FixtureFile (Join-Path $fixtureRoot 'README.md') "dotnet add package KeelMatrix.JsonDrift --version $Version"
+    Write-FixtureFile (Join-Path $fixtureRoot 'src/KeelMatrix.JsonDrift/README.md') "dotnet add package KeelMatrix.JsonDrift --version $Version"
     Write-FixtureFile (Join-Path $fixtureRoot 'CHANGELOG.md') $Changelog
     & git -C $fixtureRoot init --quiet
     & git -C $fixtureRoot config user.email contract@example.invalid
@@ -49,6 +50,7 @@ function Invoke-ContractCase {
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string]$Changelog,
         [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [string]$FixtureVersion,
         [Parameter(Mandatory = $true)][bool]$ShouldPass
     )
 
@@ -56,7 +58,11 @@ function Invoke-ContractCase {
         Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
     }
 
-    $commit = New-FixtureRepository -Changelog $Changelog
+    if ([string]::IsNullOrWhiteSpace($FixtureVersion)) {
+        $FixtureVersion = $ExpectedVersion
+    }
+
+    $commit = New-FixtureRepository -Changelog $Changelog -Version $FixtureVersion
     $output = @(Invoke-NestedPwsh -NoProfile -File $validator -ExpectedVersion $ExpectedVersion -ExpectedCommit $commit -RepositoryRoot $fixtureRoot 2>&1)
     $passed = $LASTEXITCODE -eq 0
     if ($passed -ne $ShouldPass) {
@@ -78,6 +84,18 @@ try {
 ### Added
 
 - Finalized release notes.
+'@
+
+    Invoke-ContractCase -Name 'subsequent-release' -ExpectedVersion '0.1.1' -ShouldPass $true -Changelog @'
+# Changelog
+
+## [Unreleased]
+
+## [0.1.1] - 2026-10-04
+
+### Changed
+
+- Finalized subsequent release notes.
 '@
 
     Invoke-ContractCase -Name 'unfinalized' -ExpectedVersion '0.1.0' -ShouldPass $false -Changelog @'
@@ -114,7 +132,7 @@ try {
 - Finalized release notes.
 '@
 
-    Invoke-ContractCase -Name 'version-mismatch' -ExpectedVersion '0.1.1' -ShouldPass $false -Changelog @'
+    Invoke-ContractCase -Name 'version-mismatch' -ExpectedVersion '0.1.1' -FixtureVersion '0.1.0' -ShouldPass $false -Changelog @'
 # Changelog
 
 ## [Unreleased]

@@ -10,7 +10,7 @@ best-effort activation and heartbeat signals. Baseline creation alone is not an 
 product-specific comparison payload.
 
 The shared `KeelMatrix.Telemetry` package is the source of truth for event fields, pseudonymous identifiers,
-delivery behavior, retention, runtime metadata, repository-local configuration, and process opt-out precedence.
+cadence and deduplication, delivery behavior, retention, runtime metadata, and opt-out handling.
 See the [KeelMatrix.Telemetry privacy documentation](https://github.com/KeelMatrix/Telemetry/blob/main/PRIVACY.md)
 for those shared implementation details.
 
@@ -21,16 +21,9 @@ commit identifier, type or member name, enum label, discriminator value, convert
 value, project-file content, contract content, baseline content, or arbitrary exception message. Local diagnostics
 may contain developer-facing contract detail because they stay on the machine.
 
-## Controls and failure isolation
+## Controls and failure handling
 
-Disable telemetry for a process with any of these truthy values:
-
-```text
-KEELMATRIX_NO_TELEMETRY=1
-DOTNET_CLI_TELEMETRY_OPTOUT=1
-DO_NOT_TRACK=1
-```
-
-KeelMatrix development and repository validation set the opt-out variables explicitly. Telemetry is best-effort;
-failure cannot change extraction, comparison, report classification, or assertions. Delivery behavior and the
-shared opt-out precedence remain defined by the shared telemetry policy.
+The shared telemetry client applies the process opt-out controls and owns best-effort failure handling. JsonDrift
+retains only the eligibility rule that a real comparison against an accepted baseline requests signals; baseline
+creation alone does not. KeelMatrix development and repository validation disable telemetry in their own
+processes. See the shared privacy policy for current controls and delivery behavior.

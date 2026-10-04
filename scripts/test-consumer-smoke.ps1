@@ -10,13 +10,13 @@ $ErrorActionPreference = 'Stop'
 $resolvedPackage = (Resolve-Path -LiteralPath $PackagePath).Path
 $root = Join-Path ([IO.Path]::GetTempPath()) "jsondrift-consumer-cache-regression-$([Guid]::NewGuid().ToString('N'))"
 $poisonedCache = Join-Path $root 'poisoned-global-packages'
-$poisonedPackage = Join-Path $poisonedCache 'keelmatrix.jsondrift/0.1.0'
+$poisonedPackage = Join-Path $poisonedCache 'keelmatrix.jsondrift/0.1.1'
 
 try {
     New-Item -ItemType Directory -Path (Join-Path $poisonedPackage 'lib/net8.0') -Force | Out-Null
     [IO.File]::WriteAllText(
         (Join-Path $poisonedPackage 'KeelMatrix.JsonDrift.nuspec'),
-        '<package><metadata><id>KeelMatrix.JsonDrift</id><version>0.1.0</version></metadata></package>',
+        '<package><metadata><id>KeelMatrix.JsonDrift</id><version>0.1.1</version></metadata></package>',
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(
         (Join-Path $poisonedPackage '.nupkg.metadata'),

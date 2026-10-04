@@ -720,7 +720,8 @@ function Assert-PackageGateFailClosed {
         $entry = @($archive.Entries | Where-Object { $_.FullName -cmatch $coreNamePattern })
         $bytes = Get-ZipEntryBytes -Archive $archive -Name $entry[0].FullName
         $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-        $corrupted = $text -replace '<version>[^<]+</version>', '<version>0.1.1</version>'
+        $corruptedVersion = if ($expectedPackageVersion -ceq '0.0.0') { '0.0.1' } else { '0.0.0' }
+        $corrupted = $text -replace '<version>[^<]+</version>', "<version>$corruptedVersion</version>"
         Set-ZipEntryBytes -Archive $archive -Name $entry[0].FullName -Bytes ([System.Text.Encoding]::UTF8.GetBytes($corrupted))
     }
 
